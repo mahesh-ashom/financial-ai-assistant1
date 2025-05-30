@@ -448,8 +448,18 @@ if st.sidebar.checkbox("🔍 Show Data Debug Info", value=True):  # DEFAULT TO T
     st.sidebar.subheader("📊 Data Debug Information")
     
     if not df.empty:
+        st.sidebar.write(f"**Total rows loaded:** {len(df)}")
+        st.sidebar.write(f"**Columns:** {list(df.columns)}")
+        st.sidebar.write(f"**Companies:** {list(df['Company'].unique())}")
+        
+        # Show first few rows of raw data
+        st.sidebar.write("**First 3 rows of data:**")
+        st.sidebar.dataframe(df.head(3))
+        
         # Show sample data for Almarai 2023 to verify
         almarai_2023 = df[(df['Company'] == 'Almarai') & (df['Year'] == 2023) & (df['Period_Type'] == 'Annual')]
+        st.sidebar.write(f"**Almarai 2023 Annual rows found:** {len(almarai_2023)}")
+        
         if not almarai_2023.empty:
             sample_row = almarai_2023.iloc[0]
             st.sidebar.write("**Almarai 2023 Annual Values:**")
@@ -459,13 +469,27 @@ if st.sidebar.checkbox("🔍 Show Data Debug Info", value=True):  # DEFAULT TO T
             st.sidebar.write(f"• ROA: {sample_row.get('ROA', 0):.1f}%")
             st.sidebar.write(f"• Current Ratio: {sample_row.get('Current Ratio', 0):.2f}")
             st.sidebar.write(f"• Debt-to-Equity: {sample_row.get('Debt-to-Equity', 0):.2f}")
-        
-        # Show raw values for debugging
-        st.sidebar.write("**Raw Values:**")
-        if not almarai_2023.empty:
+            
+            # Show raw values for debugging
+            st.sidebar.write("**Raw Values:**")
             raw_row = almarai_2023.iloc[0]
-            st.sidebar.write(f"• Gross Margin Raw: {raw_row.get('Gross Margin', 0):.2f}")
+            st.sidebar.write(f"• Gross Margin Raw: {raw_row.get('Gross Margin', 0):.4f}")
             st.sidebar.write(f"• Expected: 30.9 for 30.9%")
+            
+            # Show the entire row for debugging
+            st.sidebar.write("**Complete Row Data:**")
+            st.sidebar.json(dict(sample_row))
+        else:
+            st.sidebar.error("❌ No Almarai 2023 Annual data found!")
+            
+            # Show what data we DO have for Almarai
+            almarai_data = df[df['Company'] == 'Almarai']
+            if not almarai_data.empty:
+                st.sidebar.write("**Available Almarai data:**")
+                for _, row in almarai_data.head(5).iterrows():
+                    st.sidebar.write(f"Year: {row.get('Year', 'N/A')}, Period: {row.get('Period', 'N/A')}, Type: {row.get('Period_Type', 'N/A')}")
+    else:
+        st.sidebar.error("❌ No data loaded at all!")
 
 # Sidebar for navigation and model status
 st.sidebar.title("🎯 Navigation")
