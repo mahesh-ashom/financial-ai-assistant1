@@ -506,7 +506,8 @@ if page == "🏠 Dashboard":
                     roe = company_data['ROE']
                     
                     # Generate recommendation
-                    recommendation, confidence = financial_ai.predict_investment(company_data)
+                    recommendation_result = enhanced_financial_ai.comprehensive_analysis(company_data.to_dict())
+                    recommendation = recommendation_result['investment_recommendation']
                     
                     st.markdown(f"### {company}")
                     st.metric("ROE", f"{roe:.1%}")
@@ -617,12 +618,6 @@ elif page == "📊 Company Analysis":
             with st.spinner("Analyzing financial data..."):
                 analysis_data = selected_data.to_dict()
                 results = enhanced_financial_ai.comprehensive_analysis(analysis_data)
-
-# Add AI status message
-if results.get('prediction_method') == 'AI_COMPREHENSIVE_SYSTEM':
-    st.success("🎯 **AI Analysis Complete!** (Using trained models)")
-else:
-    st.info("📊 **Mathematical Analysis** (AI models not available)")
                 
                 st.markdown("---")
                 st.subheader("🎯 AI Investment Analysis")
@@ -718,7 +713,7 @@ elif page == "🎯 Custom Analysis":
         
         with st.spinner("🤖 AI is analyzing your data..."):
             # Get AI analysis
-            results = financial_ai.comprehensive_analysis(custom_data)
+            results = enhanced_financial_ai.comprehensive_analysis(custom_data)
             
             st.markdown("---")
             st.subheader(f"🎯 Analysis Results: {custom_company}")
