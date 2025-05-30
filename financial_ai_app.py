@@ -138,53 +138,26 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """Fixed data cleaning function - no more bullshit percentage conversion"""
+    """FIXED: Don't fuck with percentage conversion - just clean the data"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
-    # Let's see what we're actually dealing with first
-    print("DEBUG: Raw data sample before cleaning:")
-    if 'Gross Margin' in df.columns:
-        sample_gross = df['Gross Margin'].head(3)
-        print(f"Gross Margin samples: {sample_gross.tolist()}")
-        print(f"Gross Margin dtypes: {df['Gross Margin'].dtype}")
+    # ALL columns - just clean them, don't convert anything
+    all_numeric_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets', 'Current Ratio', 'Debt-to-Equity']
     
-    # Clean ALL columns that might be strings with % signs
-    percentage_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets']
-    numeric_columns = ['Current Ratio', 'Debt-to-Equity']
-    
-    for col in percentage_columns + numeric_columns:
+    for col in all_numeric_columns:
         if col in df.columns:
-            # Convert to string first, clean it, then to numeric
-            df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    # Now check what we have after basic cleaning
-    print("DEBUG: After basic cleaning:")
-    if 'Gross Margin' in df.columns:
-        sample_gross_clean = df['Gross Margin'].head(3)
-        print(f"Gross Margin after cleaning: {sample_gross_clean.tolist()}")
-        print(f"Max Gross Margin: {df['Gross Margin'].max()}")
-        print(f"Min Gross Margin: {df['Gross Margin'].min()}")
-    
-    # FIXED PERCENTAGE CONVERSION: Only for percentage columns and only if values > 1
-    for col in percentage_columns:
-        if col in df.columns and df[col].notna().any():
-            max_val = df[col].max()
-            print(f"DEBUG: {col} max value: {max_val}")
+            # Just clean the strings and convert to numeric - NO PERCENTAGE CONVERSION
+            if df[col].dtype == 'object':
+                # Remove % signs, commas, spaces - convert to numeric
+                df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
             
-            # If ANY value is greater than 1, assume it's in percentage format (like 30.9 for 30.9%)
-            if max_val > 1:
-                print(f"DEBUG: Converting {col} from percentage to decimal")
-                df[col] = df[col] / 100
-            else:
-                print(f"DEBUG: Keeping {col} as is (already decimal)")
-    
-    # Final check
-    print("DEBUG: Final values:")
-    if 'Gross Margin' in df.columns:
-        final_gross = df['Gross Margin'].head(3)
-        print(f"Final Gross Margin: {final_gross.tolist()}")
+            # Convert to numeric
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # DON'T DIVIDE BY ANYTHING - keep the raw values as they are
+            # If CSV says 30.9, keep it as 30.9
+            # If CSV says 0.309, keep it as 0.309
     
     return df
     
@@ -476,19 +449,19 @@ if st.sidebar.checkbox("🔍 Show Data Debug Info", value=False):
         if not almarai_2023.empty:
             sample_row = almarai_2023.iloc[0]
             st.sidebar.write("**Almarai 2023 Annual Values:**")
-            st.sidebar.write(f"• Gross Margin: {sample_row.get('Gross Margin', 0):.1%}")
-            st.sidebar.write(f"• Net Profit Margin: {sample_row.get('Net Profit Margin', 0):.1%}")
-            st.sidebar.write(f"• ROE: {sample_row.get('ROE', 0):.1%}")
-            st.sidebar.write(f"• ROA: {sample_row.get('ROA', 0):.1%}")
+            st.sidebar.write(f"• Gross Margin: {sample_row.get('Gross Margin', 0):.1f}%")
+            st.sidebar.write(f"• Net Profit Margin: {sample_row.get('Net Profit Margin', 0):.1f}%")
+            st.sidebar.write(f"• ROE: {sample_row.get('ROE', 0):.1f}%")
+            st.sidebar.write(f"• ROA: {sample_row.get('ROA', 0):.1f}%")
             st.sidebar.write(f"• Current Ratio: {sample_row.get('Current Ratio', 0):.2f}")
             st.sidebar.write(f"• Debt-to-Equity: {sample_row.get('Debt-to-Equity', 0):.2f}")
         
         # Show raw values for debugging
-        st.sidebar.write("**Raw Values (before %):**")
+        st.sidebar.write("**Raw Values:**")
         if not almarai_2023.empty:
             raw_row = almarai_2023.iloc[0]
-            st.sidebar.write(f"• Gross Margin Raw: {raw_row.get('Gross Margin', 0):.4f}")
-            st.sidebar.write(f"• Expected: ~0.309 for 30.9%")
+            st.sidebar.write(f"• Gross Margin Raw: {raw_row.get('Gross Margin', 0):.2f}")
+            st.sidebar.write(f"• Expected: 30.9 for 30.9%")
 
 # Sidebar for navigation and model status
 st.sidebar.title("🎯 Navigation")
