@@ -58,34 +58,34 @@ st.markdown("**Saudi Food Sector Investment Analysis System**")
 st.markdown("*Analyze Almarai, Savola, and NADEC with AI-powered insights*")
 
 # Load AI models with comprehensive error handling
-- @st.cache_resource
-- def load_ai_models():
--     models = {}
--     encoders = {}
--     model_status = {}
--     # ... existing three-model logic ...
--     return models, encoders, model_status
-+ @st.cache_resource
-+ def load_ai_models():
-+     """Load comprehensive ratio predictor and encoder"""
-+     models = {}
-+     encoders = {}
-+     model_status = {}
-+     # Load unified ratio predictor
-+     try:
-+         models['comprehensive'] = joblib.load('comprehensive_ratio_predictor.pkl')
-+         model_status['comprehensive'] = '✅ Loaded'
-+     except Exception as e:
-+         models['comprehensive'] = None
-+         model_status['comprehensive'] = f'❌ {e}'
-+     # Load company encoder for mapping
-+     try:
-+         encoders['company'] = joblib.load('company_encoder.pkl')
-+         model_status['company_encoder'] = '✅ Loaded'
-+     except Exception as e:
-+         encoders['company'] = None
-+         model_status['company_encoder'] = f'❌ {e}'
-+     return models, encoders, model_status
+@st.cache_resource
+def load_ai_models():
+models = {}
+encoders = {}
+model_status = {}
+# ... existing three-model logic ...
+return models, encoders, model_status
+@st.cache_resource
+def load_ai_models():
+"""Load comprehensive ratio predictor and encoder"""
+models = {}
+encoders = {}
+model_status = {}
+# Load unified ratio predictor
+try:
+models['comprehensive'] = joblib.load('comprehensive_ratio_predictor.pkl')
+model_status['comprehensive'] = '✅ Loaded'
+except Exception as e:
+models['comprehensive'] = None
+model_status['comprehensive'] = f'❌ {e}'
+# Load company encoder for mapping
+try:
+encoders['company'] = joblib.load('company_encoder.pkl')
+model_status['company_encoder'] = '✅ Loaded'
+except Exception as e:
+encoders['company'] = None
+model_status['company_encoder'] = f'❌ {e}'
+return models, encoders, model_status
 
 # Load financial data with multiple fallback options
 @st.cache_data
