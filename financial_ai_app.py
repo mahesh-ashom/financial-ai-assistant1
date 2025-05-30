@@ -60,13 +60,6 @@ st.markdown("*Analyze Almarai, Savola, and NADEC with AI-powered insights*")
 # Load AI models with comprehensive error handling
 @st.cache_resource
 def load_ai_models():
-models = {}
-encoders = {}
-model_status = {}
-# ... existing three-model logic ...
-return models, encoders, model_status
-@st.cache_resource
-def load_ai_models():
 """Load comprehensive ratio predictor and encoder"""
 models = {}
 encoders = {}
