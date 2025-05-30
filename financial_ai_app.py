@@ -116,6 +116,7 @@ def load_financial_data():
         
         for filename in possible_filenames:
             try:
+                # Load CSV with minimal processing first
                 df = pd.read_csv(filename)
                 loaded_filename = filename
                 break
@@ -129,8 +130,16 @@ def load_financial_data():
         
         st.success(f"✅ Data loaded from: {loaded_filename}")
         
-        # Comprehensive data cleaning
-        df = clean_financial_data(df)
+        # Show RAW data before any cleaning
+        st.write("🔍 **RAW CSV DATA (first 3 rows):**")
+        st.dataframe(df.head(3))
+        
+        # Show specific values for debugging
+        if 'Gross Margin' in df.columns:
+            st.write(f"**Raw Gross Margin values:** {df['Gross Margin'].head(5).tolist()}")
+            st.write(f"**Gross Margin data type:** {df['Gross Margin'].dtype}")
+        
+        # DON'T CLEAN AT ALL - just return raw data
         return df
         
     except Exception as e:
