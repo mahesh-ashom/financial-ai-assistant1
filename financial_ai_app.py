@@ -131,21 +131,6 @@ def load_financial_data():
         
         # Comprehensive data cleaning
         df = clean_financial_data(df)
-        
-        # Debug: Show sample of cleaned data for verification
-        if st.sidebar.checkbox("🔍 Show Data Debug Info", value=False):
-            st.sidebar.subheader("Data Debug Information")
-            
-            # Show sample data for Almarai 2023 to verify
-            almarai_2023 = df[(df['Company'] == 'Almarai') & (df['Year'] == 2023) & (df['Period_Type'] == 'Annual')]
-            if not almarai_2023.empty:
-                sample_row = almarai_2023.iloc[0]
-                st.sidebar.write("**Almarai 2023 Annual Sample:**")
-                st.sidebar.write(f"Gross Margin: {sample_row.get('Gross Margin', 'N/A'):.1%}")
-                st.sidebar.write(f"Net Profit Margin: {sample_row.get('Net Profit Margin', 'N/A'):.1%}")
-                st.sidebar.write(f"ROE: {sample_row.get('ROE', 'N/A'):.1%}")
-                st.sidebar.write(f"Current Ratio: {sample_row.get('Current Ratio', 'N/A'):.2f}")
-        
         return df
         
     except Exception as e:
@@ -153,42 +138,48 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """Comprehensive data cleaning function"""
+    """Comprehensive data cleaning function with improved percentage handling"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
-    # Define financial columns that might have percentage formatting
+    # Define financial columns that should be percentages (0-1 decimal format)
     percentage_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets']
     
-    # Clean percentage columns with improved logic
+    # Clean percentage columns with more careful logic
     for col in percentage_columns:
         if col in df.columns:
+            # First, handle string formatting
             if df[col].dtype == 'object':
-                # Clean string values
+                # Remove % signs and commas, convert to numeric
                 cleaned_series = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
                 df[col] = pd.to_numeric(cleaned_series, errors='coerce')
             else:
-                # Already numeric, ensure it's float
+                # Ensure numeric
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             
-            # Smart percentage conversion: only convert if ALL values are > 1
-            # This prevents already-decimal values from being converted again
+            # Smart percentage conversion logic
             if df[col].notna().any():
-                max_val = df[col].max()
-                min_val = df[col].min()
+                # Check the range of values to determine if conversion is needed
+                non_null_values = df[col].dropna()
                 
-                # If most values are > 1, they're likely percentages that need conversion
-                # But if they're already < 1, they're likely already decimals
-                if max_val > 1 and min_val > 0.01:  # Likely percentage format (e.g., 30.9 for 30.9%)
-                    df[col] = df[col] / 100
-                # If values are already between 0 and 1, keep them as is (already decimal)
+                if len(non_null_values) > 0:
+                    max_val = non_null_values.max()
+                    mean_val = non_null_values.mean()
+                    
+                    # If most values are greater than 2, they're likely in percentage format (e.g., 30.9 for 30.9%)
+                    # Convert to decimal format (0.309 for 30.9%)
+                    if max_val > 2 and mean_val > 1:
+                        df[col] = df[col] / 100
+                    # If values are already small (< 2), assume they're already in decimal format
+                    # Do nothing - keep as is
     
-    # Clean other numeric columns
+    # Clean other numeric columns (these should NOT be converted)
     numeric_columns = ['Current Ratio', 'Debt-to-Equity']
     for col in numeric_columns:
         if col in df.columns:
             if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.replace(',', '').str.strip()
+                # Clean string formatting but don't convert percentages
+                df[col] = df[col].astype(str).str.replace(',', '').str.replace('%', '').str.strip()
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
     # Create derived columns if missing
@@ -468,6 +459,30 @@ models, encoders, model_status = load_ai_models()
 
 # Initialize AI system
 financial_ai = FinancialAI(models, encoders)
+
+# Debug section (outside cached function)
+if st.sidebar.checkbox("🔍 Show Data Debug Info", value=False):
+    st.sidebar.subheader("📊 Data Debug Information")
+    
+    if not df.empty:
+        # Show sample data for Almarai 2023 to verify
+        almarai_2023 = df[(df['Company'] == 'Almarai') & (df['Year'] == 2023) & (df['Period_Type'] == 'Annual')]
+        if not almarai_2023.empty:
+            sample_row = almarai_2023.iloc[0]
+            st.sidebar.write("**Almarai 2023 Annual Values:**")
+            st.sidebar.write(f"• Gross Margin: {sample_row.get('Gross Margin', 0):.1%}")
+            st.sidebar.write(f"• Net Profit Margin: {sample_row.get('Net Profit Margin', 0):.1%}")
+            st.sidebar.write(f"• ROE: {sample_row.get('ROE', 0):.1%}")
+            st.sidebar.write(f"• ROA: {sample_row.get('ROA', 0):.1%}")
+            st.sidebar.write(f"• Current Ratio: {sample_row.get('Current Ratio', 0):.2f}")
+            st.sidebar.write(f"• Debt-to-Equity: {sample_row.get('Debt-to-Equity', 0):.2f}")
+        
+        # Show raw values for debugging
+        st.sidebar.write("**Raw Values (before %):**")
+        if not almarai_2023.empty:
+            raw_row = almarai_2023.iloc[0]
+            st.sidebar.write(f"• Gross Margin Raw: {raw_row.get('Gross Margin', 0):.4f}")
+            st.sidebar.write(f"• Expected: ~0.309 for 30.9%")
 
 # Sidebar for navigation and model status
 st.sidebar.title("🎯 Navigation")
