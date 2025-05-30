@@ -138,11 +138,11 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """FINAL FIX: Handle both decimal and percentage formats correctly"""
+    """FINAL FIX: Just clean the data, NO percentage conversion at all"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
-    # Clean all numeric columns
+    # Clean all numeric columns - JUST CLEAN, DON'T CONVERT
     all_numeric_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets', 'Current Ratio', 'Debt-to-Equity']
     
     for col in all_numeric_columns:
@@ -151,17 +151,8 @@ def clean_financial_data(df):
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
             
-            # Convert to numeric
+            # Convert to numeric - THAT'S IT, NO OTHER CONVERSION
             df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # SPECIAL HANDLING: If values are very small (< 1), they're probably in decimal format
-            # Convert them to percentage format for display consistency
-            if col in ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets']:
-                if df[col].notna().any():
-                    max_val = df[col].max()
-                    # If max value is less than 1 (e.g., 0.309), convert to percentage (30.9)
-                    if max_val < 1:
-                        df[col] = df[col] * 100
     
     return df
     
