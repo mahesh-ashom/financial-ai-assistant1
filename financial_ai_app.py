@@ -58,44 +58,34 @@ st.markdown("**Saudi Food Sector Investment Analysis System**")
 st.markdown("*Analyze Almarai, Savola, and NADEC with AI-powered insights*")
 
 # Load AI models with comprehensive error handling
-@st.cache_resource
-def load_ai_models():
-    """Load all AI models with fallback options"""
-    models = {}
-    encoders = {}
-    model_status = {}
-    
-    model_files = {
-        'roe_model': 'roe_prediction_model.pkl',
-        'investment_model': 'investment_model.pkl', 
-        'status_model': 'company_status_model.pkl'
-    }
-    
-    encoder_files = {
-        'investment_encoder': 'investment_encoder.pkl',
-        'status_encoder': 'status_encoder.pkl',
-        'company_encoder': 'company_encoder.pkl'
-    }
-    
-    # Try to load models
-    for model_name, filename in model_files.items():
-        try:
-            models[model_name] = joblib.load(filename)
-            model_status[model_name] = "✅ Loaded"
-        except Exception as e:
-            models[model_name] = None
-            model_status[model_name] = f"❌ Failed: {str(e)[:50]}"
-    
-    # Try to load encoders
-    for encoder_name, filename in encoder_files.items():
-        try:
-            encoders[encoder_name] = joblib.load(filename)
-            model_status[encoder_name] = "✅ Loaded"
-        except Exception as e:
-            encoders[encoder_name] = None
-            model_status[encoder_name] = f"❌ Failed: {str(e)[:50]}"
-    
-    return models, encoders, model_status
+- @st.cache_resource
+- def load_ai_models():
+-     models = {}
+-     encoders = {}
+-     model_status = {}
+-     # ... existing three-model logic ...
+-     return models, encoders, model_status
++ @st.cache_resource
++ def load_ai_models():
++     """Load comprehensive ratio predictor and encoder"""
++     models = {}
++     encoders = {}
++     model_status = {}
++     # Load unified ratio predictor
++     try:
++         models['comprehensive'] = joblib.load('comprehensive_ratio_predictor.pkl')
++         model_status['comprehensive'] = '✅ Loaded'
++     except Exception as e:
++         models['comprehensive'] = None
++         model_status['comprehensive'] = f'❌ {e}'
++     # Load company encoder for mapping
++     try:
++         encoders['company'] = joblib.load('company_encoder.pkl')
++         model_status['company_encoder'] = '✅ Loaded'
++     except Exception as e:
++         encoders['company'] = None
++         model_status['company_encoder'] = f'❌ {e}'
++     return models, encoders, model_status
 
 # Load financial data with multiple fallback options
 @st.cache_data
