@@ -138,49 +138,55 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """Comprehensive data cleaning function with improved percentage handling"""
+    """Fixed data cleaning function - no more bullshit percentage conversion"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
-    # Define financial columns that should be percentages (0-1 decimal format)
+    # Let's see what we're actually dealing with first
+    print("DEBUG: Raw data sample before cleaning:")
+    if 'Gross Margin' in df.columns:
+        sample_gross = df['Gross Margin'].head(3)
+        print(f"Gross Margin samples: {sample_gross.tolist()}")
+        print(f"Gross Margin dtypes: {df['Gross Margin'].dtype}")
+    
+    # Clean ALL columns that might be strings with % signs
     percentage_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets']
-    
-    # Clean percentage columns with more careful logic
-    for col in percentage_columns:
-        if col in df.columns:
-            # First, handle string formatting
-            if df[col].dtype == 'object':
-                # Remove % signs and commas, convert to numeric
-                cleaned_series = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
-                df[col] = pd.to_numeric(cleaned_series, errors='coerce')
-            else:
-                # Ensure numeric
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # Smart percentage conversion logic
-            if df[col].notna().any():
-                # Check the range of values to determine if conversion is needed
-                non_null_values = df[col].dropna()
-                
-                if len(non_null_values) > 0:
-                    max_val = non_null_values.max()
-                    mean_val = non_null_values.mean()
-                    
-                    # If most values are greater than 2, they're likely in percentage format (e.g., 30.9 for 30.9%)
-                    # Convert to decimal format (0.309 for 30.9%)
-                    if max_val > 2 and mean_val > 1:
-                        df[col] = df[col] / 100
-                    # If values are already small (< 2), assume they're already in decimal format
-                    # Do nothing - keep as is
-    
-    # Clean other numeric columns (these should NOT be converted)
     numeric_columns = ['Current Ratio', 'Debt-to-Equity']
-    for col in numeric_columns:
+    
+    for col in percentage_columns + numeric_columns:
         if col in df.columns:
-            if df[col].dtype == 'object':
-                # Clean string formatting but don't convert percentages
-                df[col] = df[col].astype(str).str.replace(',', '').str.replace('%', '').str.strip()
+            # Convert to string first, clean it, then to numeric
+            df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
             df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Now check what we have after basic cleaning
+    print("DEBUG: After basic cleaning:")
+    if 'Gross Margin' in df.columns:
+        sample_gross_clean = df['Gross Margin'].head(3)
+        print(f"Gross Margin after cleaning: {sample_gross_clean.tolist()}")
+        print(f"Max Gross Margin: {df['Gross Margin'].max()}")
+        print(f"Min Gross Margin: {df['Gross Margin'].min()}")
+    
+    # FIXED PERCENTAGE CONVERSION: Only for percentage columns and only if values > 1
+    for col in percentage_columns:
+        if col in df.columns and df[col].notna().any():
+            max_val = df[col].max()
+            print(f"DEBUG: {col} max value: {max_val}")
+            
+            # If ANY value is greater than 1, assume it's in percentage format (like 30.9 for 30.9%)
+            if max_val > 1:
+                print(f"DEBUG: Converting {col} from percentage to decimal")
+                df[col] = df[col] / 100
+            else:
+                print(f"DEBUG: Keeping {col} as is (already decimal)")
+    
+    # Final check
+    print("DEBUG: Final values:")
+    if 'Gross Margin' in df.columns:
+        final_gross = df['Gross Margin'].head(3)
+        print(f"Final Gross Margin: {final_gross.tolist()}")
+    
+    return df
     
     # Create derived columns if missing
     if 'Period_Type' not in df.columns and 'Period' in df.columns:
@@ -216,16 +222,16 @@ def create_sample_data():
     # Base financial ratios for each company (realistic Saudi market values)
     base_ratios = {
         'Almarai': {
-            'Gross Margin': 0.35, 'Net Profit Margin': 0.12, 'ROA': 0.08, 'ROE': 0.15,
-            'Current Ratio': 1.5, 'Debt-to-Equity': 0.6, 'Debt-to-Assets': 0.35
+            'Gross Margin': 30.9, 'Net Profit Margin': 10.5, 'ROA': 5.7, 'ROE': 11.5,
+            'Current Ratio': 1.40, 'Debt-to-Equity': 1.03, 'Debt-to-Assets': 51.0
         },
         'Savola': {
-            'Gross Margin': 0.28, 'Net Profit Margin': 0.08, 'ROA': 0.06, 'ROE': 0.12,
-            'Current Ratio': 1.3, 'Debt-to-Equity': 0.8, 'Debt-to-Assets': 0.42
+            'Gross Margin': 20.3, 'Net Profit Margin': 4.5, 'ROA': 4.0, 'ROE': 12.6,
+            'Current Ratio': 0.84, 'Debt-to-Equity': 2.14, 'Debt-to-Assets': 68.0
         },
         'NADEC': {
-            'Gross Margin': 0.25, 'Net Profit Margin': 0.06, 'ROA': 0.04, 'ROE': 0.09,
-            'Current Ratio': 1.2, 'Debt-to-Equity': 1.0, 'Debt-to-Assets': 0.48
+            'Gross Margin': 37.0, 'Net Profit Margin': 9.4, 'ROA': 5.9, 'ROE': 8.4,
+            'Current Ratio': 1.96, 'Debt-to-Equity': 0.42, 'Debt-to-Assets': 30.0
         }
     }
     
