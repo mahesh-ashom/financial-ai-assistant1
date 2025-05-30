@@ -138,26 +138,30 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """FIXED: Don't fuck with percentage conversion - just clean the data"""
+    """FINAL FIX: Handle both decimal and percentage formats correctly"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
-    # ALL columns - just clean them, don't convert anything
+    # Clean all numeric columns
     all_numeric_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets', 'Current Ratio', 'Debt-to-Equity']
     
     for col in all_numeric_columns:
         if col in df.columns:
-            # Just clean the strings and convert to numeric - NO PERCENTAGE CONVERSION
+            # Clean strings (remove % signs, commas, spaces)
             if df[col].dtype == 'object':
-                # Remove % signs, commas, spaces - convert to numeric
                 df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
             
             # Convert to numeric
             df[col] = pd.to_numeric(df[col], errors='coerce')
             
-            # DON'T DIVIDE BY ANYTHING - keep the raw values as they are
-            # If CSV says 30.9, keep it as 30.9
-            # If CSV says 0.309, keep it as 0.309
+            # SPECIAL HANDLING: If values are very small (< 1), they're probably in decimal format
+            # Convert them to percentage format for display consistency
+            if col in ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets']:
+                if df[col].notna().any():
+                    max_val = df[col].max()
+                    # If max value is less than 1 (e.g., 0.309), convert to percentage (30.9)
+                    if max_val < 1:
+                        df[col] = df[col] * 100
     
     return df
     
@@ -440,7 +444,7 @@ models, encoders, model_status = load_ai_models()
 financial_ai = FinancialAI(models, encoders)
 
 # Debug section (outside cached function)
-if st.sidebar.checkbox("🔍 Show Data Debug Info", value=False):
+if st.sidebar.checkbox("🔍 Show Data Debug Info", value=True):  # DEFAULT TO TRUE to see the problem
     st.sidebar.subheader("📊 Data Debug Information")
     
     if not df.empty:
