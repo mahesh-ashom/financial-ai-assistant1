@@ -131,6 +131,21 @@ def load_financial_data():
         
         # Comprehensive data cleaning
         df = clean_financial_data(df)
+        
+        # Debug: Show sample of cleaned data for verification
+        if st.sidebar.checkbox("🔍 Show Data Debug Info", value=False):
+            st.sidebar.subheader("Data Debug Information")
+            
+            # Show sample data for Almarai 2023 to verify
+            almarai_2023 = df[(df['Company'] == 'Almarai') & (df['Year'] == 2023) & (df['Period_Type'] == 'Annual')]
+            if not almarai_2023.empty:
+                sample_row = almarai_2023.iloc[0]
+                st.sidebar.write("**Almarai 2023 Annual Sample:**")
+                st.sidebar.write(f"Gross Margin: {sample_row.get('Gross Margin', 'N/A'):.1%}")
+                st.sidebar.write(f"Net Profit Margin: {sample_row.get('Net Profit Margin', 'N/A'):.1%}")
+                st.sidebar.write(f"ROE: {sample_row.get('ROE', 'N/A'):.1%}")
+                st.sidebar.write(f"Current Ratio: {sample_row.get('Current Ratio', 'N/A'):.2f}")
+        
         return df
         
     except Exception as e:
@@ -145,15 +160,28 @@ def clean_financial_data(df):
     # Define financial columns that might have percentage formatting
     percentage_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets']
     
-    # Clean percentage columns
+    # Clean percentage columns with improved logic
     for col in percentage_columns:
         if col in df.columns:
             if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
+                # Clean string values
+                cleaned_series = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
+                df[col] = pd.to_numeric(cleaned_series, errors='coerce')
+            else:
+                # Already numeric, ensure it's float
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-                # Convert to decimal if values are > 1 (assuming they're percentages)
-                if df[col].max() > 1:
+            
+            # Smart percentage conversion: only convert if ALL values are > 1
+            # This prevents already-decimal values from being converted again
+            if df[col].notna().any():
+                max_val = df[col].max()
+                min_val = df[col].min()
+                
+                # If most values are > 1, they're likely percentages that need conversion
+                # But if they're already < 1, they're likely already decimals
+                if max_val > 1 and min_val > 0.01:  # Likely percentage format (e.g., 30.9 for 30.9%)
                     df[col] = df[col] / 100
+                # If values are already between 0 and 1, keep them as is (already decimal)
     
     # Clean other numeric columns
     numeric_columns = ['Current Ratio', 'Debt-to-Equity']
