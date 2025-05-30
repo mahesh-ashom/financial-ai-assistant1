@@ -59,43 +59,33 @@ st.markdown("*Analyze Almarai, Savola, and NADEC with AI-powered insights*")
 
 # Load AI models with comprehensive error handling
 @st.cache_resource
-def load_ai_models():
-    """Load all AI models with fallback options"""
-    models = {}
-    encoders = {}
-    model_status = {}
-    
-    model_files = {
-        'roe_model': 'roe_prediction_model.pkl',
-        'investment_model': 'investment_model.pkl', 
-        'status_model': 'company_status_model.pkl'
-    }
-    
-    encoder_files = {
-        'investment_encoder': 'investment_encoder.pkl',
-        'status_encoder': 'status_encoder.pkl',
-        'company_encoder': 'company_encoder.pkl'
-    }
-    
-    # Try to load models
-    for model_name, filename in model_files.items():
-        try:
-            models[model_name] = joblib.load(filename)
-            model_status[model_name] = "✅ Loaded"
-        except Exception as e:
-            models[model_name] = None
-            model_status[model_name] = f"❌ Failed: {str(e)[:50]}"
-    
-    # Try to load encoders
-    for encoder_name, filename in encoder_files.items():
-        try:
-            encoders[encoder_name] = joblib.load(filename)
-            model_status[encoder_name] = "✅ Loaded"
-        except Exception as e:
-            encoders[encoder_name] = None
-            model_status[encoder_name] = f"❌ Failed: {str(e)[:50]}"
-    
-    return models, encoders, model_status
+def load_comprehensive_ai_system():
+    """Load the comprehensive AI system from Colab"""
+    try:
+        # Load the main comprehensive predictor
+        comprehensive_predictor = joblib.load('comprehensive_ratio_predictor.pkl')
+        
+        # Load company encoder
+        company_encoder = joblib.load('company_encoder.pkl')
+        
+        # Check if the system has models
+        if hasattr(comprehensive_predictor, 'models') and len(comprehensive_predictor.models) > 0:
+            available_models = list(comprehensive_predictor.models.keys())
+            
+            return {
+                'status': 'AI_MODELS_ACTIVE',
+                'comprehensive_predictor': comprehensive_predictor,
+                'company_encoder': company_encoder,
+                'available_models': available_models,
+                'model_count': len(available_models)
+            }
+        else:
+            return {'status': 'FALLBACK_MODE', 'error': 'No models found in predictor'}
+            
+    except FileNotFoundError as e:
+        return {'status': 'FALLBACK_MODE', 'error': f'Model files not found: {e}'}
+    except Exception as e:
+        return {'status': 'FALLBACK_MODE', 'error': f'Error loading models: {e}'}
 
 # Load financial data with multiple fallback options
 @st.cache_data
@@ -248,200 +238,156 @@ def create_sample_data():
     return pd.DataFrame(data)
 
 # Financial AI Class for predictions
-class FinancialAI:
-    def __init__(self, models, encoders):
-        self.models = models
-        self.encoders = encoders
+class EnhancedFinancialAI:
+    def __init__(self, ai_system):
+        self.ai_system = ai_system
+        self.status = ai_system['status']
         
-        # Feature lists (from your original implementation)
-        self.roe_features = ['Gross Margin', 'Net Profit Margin', 'ROA', 'Current Ratio',
-                            'Debt-to-Equity', 'Debt-to-Assets', 'Year', 'Quarter', 'Company_Encoded']
-        self.invest_features = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE',
-                               'Current Ratio', 'Debt-to-Equity', 'Debt-to-Assets',
-                               'Year', 'Quarter', 'Company_Encoded']
-        self.status_features = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE',
-                               'Current Ratio', 'Debt-to-Equity', 'Debt-to-Assets',
-                               'Year', 'Quarter', 'Company_Encoded']
-    
-    def encode_company(self, company_name):
-        """Encode company name"""
-        company_mapping = {'Almarai': 0, 'NADEC': 1, 'Savola': 2}
-        return company_mapping.get(company_name, 0)
-    
-    def predict_roe(self, company_data):
-        """Predict ROE using the trained model"""
-        if self.models['roe_model'] is None:
-            return self._fallback_roe_prediction(company_data)
-        
-        try:
-            # Prepare features
-            features = []
-            for feature in self.roe_features:
-                if feature == 'Company_Encoded':
-                    features.append(self.encode_company(company_data.get('Company', 'Almarai')))
-                else:
-                    features.append(company_data.get(feature, 0))
-            
-            prediction = self.models['roe_model'].predict([features])[0]
-            return max(0, min(prediction, 1))  # Bound between 0 and 100%
-        except:
-            return self._fallback_roe_prediction(company_data)
-    
-    def predict_investment(self, company_data_with_roe):
-        """Predict investment recommendation"""
-        if self.models['investment_model'] is None or self.encoders['investment_encoder'] is None:
-            return self._fallback_investment_prediction(company_data_with_roe)
-        
-        try:
-            features = []
-            for feature in self.invest_features:
-                if feature == 'Company_Encoded':
-                    features.append(self.encode_company(company_data_with_roe.get('Company', 'Almarai')))
-                else:
-                    features.append(company_data_with_roe.get(feature, 0))
-            
-            prediction = self.models['investment_model'].predict([features])[0]
-            recommendation = self.encoders['investment_encoder'].inverse_transform([prediction])[0]
-            confidence = max(self.models['investment_model'].predict_proba([features])[0])
-            
-            return recommendation, confidence
-        except:
-            return self._fallback_investment_prediction(company_data_with_roe)
-    
-    def predict_status(self, company_data_with_roe):
-        """Predict company status"""
-        if self.models['status_model'] is None or self.encoders['status_encoder'] is None:
-            return self._fallback_status_prediction(company_data_with_roe)
-        
-        try:
-            features = []
-            for feature in self.status_features:
-                if feature == 'Company_Encoded':
-                    features.append(self.encode_company(company_data_with_roe.get('Company', 'Almarai')))
-                else:
-                    features.append(company_data_with_roe.get(feature, 0))
-            
-            prediction = self.models['status_model'].predict([features])[0]
-            status = self.encoders['status_encoder'].inverse_transform([prediction])[0]
-            
-            return status
-        except:
-            return self._fallback_status_prediction(company_data_with_roe)
-    
-    def _fallback_roe_prediction(self, company_data):
-        """Fallback ROE prediction using financial relationships"""
-        roa = company_data.get('ROA', 0)
-        npm = company_data.get('Net Profit Margin', 0)
-        equity_multiplier = 1 + company_data.get('Debt-to-Equity', 0)
-        
-        # ROE = ROA × Equity Multiplier (simplified DuPont formula)
-        predicted_roe = roa * equity_multiplier
-        
-        # Alternative calculation using profit margin relationship
-        if predicted_roe == 0:
-            predicted_roe = npm * 1.2  # Rough approximation
-        
-        return max(0, min(predicted_roe, 1))
-    
-    def _fallback_investment_prediction(self, company_data):
-        """Fallback investment prediction using scoring system"""
-        score = self._calculate_investment_score(company_data)
-        
-        if score >= 70:
-            return "Strong Buy", 0.85
-        elif score >= 60:
-            return "Buy", 0.75
-        elif score >= 40:
-            return "Hold", 0.65
+        if self.status == 'AI_MODELS_ACTIVE':
+            self.comprehensive_predictor = ai_system['comprehensive_predictor']
+            self.company_encoder = ai_system['company_encoder']
         else:
-            return "Sell", 0.55
-    
-    def _fallback_status_prediction(self, company_data):
-        """Fallback status prediction"""
-        roe = company_data.get('ROE', 0)
-        npm = company_data.get('Net Profit Margin', 0)
-        
-        if roe > 0.15 and npm > 0.15:
-            return "Excellent"
-        elif roe > 0.10 and npm > 0.10:
-            return "Good"
-        elif roe > 0.05 and npm > 0.05:
-            return "Average"
-        else:
-            return "Poor"
-    
-    def _calculate_investment_score(self, data):
-        """Calculate investment score based on financial metrics"""
-        score = 0
-        
-        # ROE scoring (35% weight)
-        roe = data.get('ROE', 0)
-        if roe > 0.20: score += 35
-        elif roe > 0.15: score += 30
-        elif roe > 0.12: score += 25
-        elif roe > 0.08: score += 15
-        elif roe > 0.05: score += 8
-        elif roe > 0.02: score += 3
-        
-        # ROA scoring (25% weight)
-        roa = data.get('ROA', 0)
-        if roa > 0.12: score += 25
-        elif roa > 0.08: score += 20
-        elif roa > 0.06: score += 15
-        elif roa > 0.04: score += 10
-        elif roa > 0.02: score += 5
-        
-        # Net Profit Margin scoring (20% weight)
-        npm = data.get('Net Profit Margin', 0)
-        if npm > 0.15: score += 20
-        elif npm > 0.10: score += 15
-        elif npm > 0.05: score += 10
-        elif npm > 0.02: score += 5
-        
-        # Current Ratio scoring (10% weight)
-        cr = data.get('Current Ratio', 0)
-        if cr > 2.0: score += 10
-        elif cr > 1.5: score += 8
-        elif cr > 1.2: score += 6
-        elif cr > 1.0: score += 3
-        
-        # Debt-to-Equity scoring (10% weight)
-        de = data.get('Debt-to-Equity', 0)
-        if de < 0.3: score += 10
-        elif de < 0.5: score += 8
-        elif de < 0.8: score += 6
-        elif de < 1.2: score += 4
-        elif de < 1.5: score += 2
-        
-        return score
+            self.comprehensive_predictor = None
+            self.company_encoder = None
     
     def comprehensive_analysis(self, company_data):
-        """Perform comprehensive financial analysis"""
-        # Predict ROE
-        predicted_roe = self.predict_roe(company_data)
+        """Perform comprehensive analysis using AI or fallbacks"""
         
-        # Update data with predicted ROE
-        company_data_with_roe = company_data.copy()
-        company_data_with_roe['ROE'] = predicted_roe
+        if self.status == 'AI_MODELS_ACTIVE' and self.comprehensive_predictor:
+            try:
+                # Use the comprehensive AI system from Colab
+                predictions, complete_data = self.comprehensive_predictor.predict_all_ratios(
+                    company_data, 
+                    prediction_method='iterative'
+                )
+                
+                # Extract predicted ROE
+                predicted_roe = predictions.get('ROE', {}).get('predicted_value', company_data.get('ROA', 0.05) * 1.5)
+                
+                # Create investment recommendation based on AI predictions
+                investment_score = self._calculate_ai_investment_score(complete_data, predictions)
+                
+                if investment_score >= 70:
+                    investment_rec, confidence = "Strong Buy", 0.85
+                elif investment_score >= 60:
+                    investment_rec, confidence = "Buy", 0.75
+                elif investment_score >= 40:
+                    investment_rec, confidence = "Hold", 0.65
+                else:
+                    investment_rec, confidence = "Sell", 0.55
+                
+                # Determine company status
+                company_status = self._get_ai_company_status(complete_data)
+                
+                return {
+                    'predicted_roe': predicted_roe,
+                    'investment_recommendation': investment_rec,
+                    'investment_confidence': confidence,
+                    'company_status': company_status,
+                    'investment_score': investment_score,
+                    'ai_predictions': predictions,
+                    'prediction_method': 'AI_COMPREHENSIVE_SYSTEM'
+                }
+                
+            except Exception as e:
+                st.warning(f"AI prediction failed: {e}. Using fallback method.")
+                return self._fallback_analysis(company_data)
+        else:
+            return self._fallback_analysis(company_data)
+    
+    def _calculate_ai_investment_score(self, complete_data, predictions):
+        """Calculate investment score using AI predictions"""
+        score = 0
         
-        # Get predictions
-        investment_rec, confidence = self.predict_investment(company_data_with_roe)
-        company_status = self.predict_status(company_data_with_roe)
+        # Use predicted ROE
+        roe = predictions.get('ROE', {}).get('predicted_value', complete_data.get('ROE', 0))
+        if roe > 0.15: score += 30
+        elif roe > 0.10: score += 20
+        elif roe > 0.05: score += 10
+        
+        # Use predicted ROA
+        roa = predictions.get('ROA', {}).get('predicted_value', complete_data.get('ROA', 0))
+        if roa > 0.08: score += 25
+        elif roa > 0.05: score += 15
+        elif roa > 0.02: score += 5
+        
+        # Use predicted Net Profit Margin
+        npm = predictions.get('Net Profit Margin', {}).get('predicted_value', complete_data.get('Net Profit Margin', 0))
+        if npm > 0.10: score += 20
+        elif npm > 0.05: score += 10
+        
+        # Debt ratios
+        debt_equity = predictions.get('Debt-to-Equity', {}).get('predicted_value', complete_data.get('Debt-to-Equity', 1))
+        if debt_equity < 0.5: score += 15
+        elif debt_equity < 1.0: score += 10
+        elif debt_equity < 1.5: score += 5
+        
+        return min(100, score)
+    
+    def _get_ai_company_status(self, complete_data):
+        """Determine company status using AI predictions"""
+        roe = complete_data.get('ROE', 0)
+        npm = complete_data.get('Net Profit Margin', 0)
+        
+        if roe > 0.15 and npm > 0.15:
+            return 'Excellent'
+        elif roe > 0.10 and npm > 0.10:
+            return 'Good'
+        elif roe > 0.05 and npm > 0.05:
+            return 'Average'
+        else:
+            return 'Poor'
+    
+    def _fallback_analysis(self, company_data):
+        """Fallback to mathematical calculations"""
+        roa = company_data.get('ROA', 0.05)
+        npm = company_data.get('Net Profit Margin', 0.08)
+        equity_multiplier = 1 + company_data.get('Debt-to-Equity', 0.8)
+        
+        predicted_roe = roa * equity_multiplier
+        investment_score = self._calculate_fallback_score(company_data)
+        
+        if investment_score >= 70:
+            investment_rec, confidence = "Buy", 0.70
+        elif investment_score >= 50:
+            investment_rec, confidence = "Hold", 0.65
+        else:
+            investment_rec, confidence = "Sell", 0.60
         
         return {
             'predicted_roe': predicted_roe,
             'investment_recommendation': investment_rec,
             'investment_confidence': confidence,
-            'company_status': company_status,
-            'investment_score': self._calculate_investment_score(company_data_with_roe)
+            'company_status': 'Average',
+            'investment_score': investment_score,
+            'prediction_method': 'MATHEMATICAL_FALLBACK'
         }
+    
+    def _calculate_fallback_score(self, data):
+        """Calculate fallback investment score"""
+        score = 0
+        roe = data.get('ROE', data.get('ROA', 0.05) * 1.5)
+        
+        if roe > 0.15: score += 35
+        elif roe > 0.10: score += 25
+        elif roe > 0.05: score += 15
+        
+        roa = data.get('ROA', 0.05)
+        if roa > 0.08: score += 25
+        elif roa > 0.05: score += 15
+        
+        npm = data.get('Net Profit Margin', 0.08)
+        if npm > 0.10: score += 20
+        elif npm > 0.05: score += 10
+        
+        return min(100, score)
 
 # Load data and models
 df = load_financial_data()
-models, encoders, model_status = load_ai_models()
+ai_system = load_comprehensive_ai_system()
 
-# Initialize AI system
-financial_ai = FinancialAI(models, encoders)
+# Initialize enhanced AI system
+enhanced_financial_ai = EnhancedFinancialAI(ai_system)
 
 # Debug section (outside cached function)
 if st.sidebar.checkbox("🔍 Show Data Debug Info", value=True):  # DEFAULT TO TRUE to see the problem
@@ -494,10 +440,23 @@ if st.sidebar.checkbox("🔍 Show Data Debug Info", value=True):  # DEFAULT TO T
 # Sidebar for navigation and model status
 st.sidebar.title("🎯 Navigation")
 
-# Model status display
-with st.sidebar.expander("🤖 Model Status", expanded=False):
-    for model_name, status in model_status.items():
-        st.write(f"**{model_name}:** {status}")
+# AI System Status Display
+st.sidebar.subheader("🤖 AI System Status")
+
+if ai_system['status'] == 'AI_MODELS_ACTIVE':
+    st.sidebar.success("🤖 **AI MODELS ACTIVE**")
+    st.sidebar.write(f"✅ Comprehensive AI System Loaded")
+    st.sidebar.write(f"✅ Available Models: {ai_system['model_count']}")
+    st.sidebar.write(f"✅ Company Encoder: Ready")
+    
+    # Show available AI capabilities
+    with st.sidebar.expander("🔍 AI Model Details", expanded=False):
+        for model in ai_system['available_models']:
+            st.write(f"• {model} Prediction")
+else:
+    st.sidebar.warning("⚠️ **Using Mathematical Fallbacks**")
+    st.sidebar.write(f"Error: {ai_system.get('error', 'Unknown error')}")
+    st.sidebar.write("Upload comprehensive_ratio_predictor.pkl to activate AI")
 
 # Main navigation
 page = st.sidebar.selectbox(
@@ -657,7 +616,13 @@ elif page == "📊 Company Analysis":
         if st.button("🤖 Generate AI Analysis", type="primary", key="company_analysis"):
             with st.spinner("Analyzing financial data..."):
                 analysis_data = selected_data.to_dict()
-                results = financial_ai.comprehensive_analysis(analysis_data)
+                results = enhanced_financial_ai.comprehensive_analysis(analysis_data)
+
+# Add AI status message
+if results.get('prediction_method') == 'AI_COMPREHENSIVE_SYSTEM':
+    st.success("🎯 **AI Analysis Complete!** (Using trained models)")
+else:
+    st.info("📊 **Mathematical Analysis** (AI models not available)")
                 
                 st.markdown("---")
                 st.subheader("🎯 AI Investment Analysis")
