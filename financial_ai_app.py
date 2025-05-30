@@ -23,8 +23,25 @@ st.markdown("Analyze Almarai, Savola, and NADEC with AI-powered insights - Enhan
 def load_financial_data():
     """Load and prepare real financial data from actual CSV file"""
     try:
-        # Try to load the actual CSV file
-        df = pd.read_csv('Savola Almarai NADEC Financial Ratios CSV.csv.csv')
+        # Try to load the actual CSV file - try multiple possible filenames
+        possible_filenames = [
+            'Savola Almarai NADEC Financial Ratios CSV.csv.csv',
+            'Savola Almarai NADEC Financial Ratios CSV.csv', 
+            'Savola_Almarai_NADEC_Financial_Ratios_CSV.csv',
+            'financial_data.csv'
+        ]
+        
+        df = None
+        for filename in possible_filenames:
+            try:
+                df = pd.read_csv(filename)
+                st.success(f"✅ Loaded data from: {filename}")
+                break
+            except:
+                continue
+        
+        if df is None:
+            raise FileNotFoundError("Could not find CSV file with any expected filename")
         
         # Clean column names
         df.columns = df.columns.str.strip()
