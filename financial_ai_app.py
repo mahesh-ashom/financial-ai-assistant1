@@ -252,7 +252,7 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """FINAL FIX: Clean financial data - NO percentage conversion, just clean the values"""
+    """Clean financial data - keep percentages as original values (30.9 not 0.309)"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
@@ -419,22 +419,22 @@ class EnhancedFinancialAI:
             return self._fallback_analysis(company_data)
     
     def _calculate_ai_investment_score(self, complete_data, predictions):
-        """Calculate investment score using AI predictions - FIXED for percentage values"""
+        """Calculate investment score using AI predictions - work with percentage values"""
         score = 0
         
-        # Use predicted ROE - FIXED: Work with percentage values (15% not 0.15)
+        # Use predicted ROE - work with percentage values (15.0 not 0.15)
         roe = predictions.get('ROE', {}).get('predicted_value', complete_data.get('ROE', 0))
         if roe > 15.0: score += 30
         elif roe > 10.0: score += 20
         elif roe > 5.0: score += 10
         
-        # Use predicted ROA - FIXED: Work with percentage values
+        # Use predicted ROA - work with percentage values
         roa = predictions.get('ROA', {}).get('predicted_value', complete_data.get('ROA', 0))
         if roa > 8.0: score += 25
         elif roa > 5.0: score += 15
         elif roa > 2.0: score += 5
         
-        # Use predicted Net Profit Margin - FIXED: Work with percentage values
+        # Use predicted Net Profit Margin - work with percentage values
         npm = predictions.get('Net Profit Margin', {}).get('predicted_value', complete_data.get('Net Profit Margin', 0))
         if npm > 10.0: score += 20
         elif npm > 5.0: score += 10
@@ -462,9 +462,9 @@ class EnhancedFinancialAI:
             return 'Poor'
     
     def _fallback_analysis(self, company_data):
-        """Fallback to mathematical calculations - FIXED for percentage values"""
-        roa = company_data.get('ROA', 5.0)  # FIXED: Default to 5% not 0.05
-        npm = company_data.get('Net Profit Margin', 8.0)  # FIXED: Default to 8% not 0.08
+        """Fallback to mathematical calculations - work with percentage values"""
+        roa = company_data.get('ROA', 5.0)  # Default to 5.0% 
+        npm = company_data.get('Net Profit Margin', 8.0)  # Default to 8.0%
         equity_multiplier = 1 + company_data.get('Debt-to-Equity', 0.8)
         
         predicted_roe = roa * equity_multiplier
@@ -487,20 +487,20 @@ class EnhancedFinancialAI:
         }
     
     def _calculate_fallback_score(self, data):
-        """Calculate fallback investment score - FIXED for percentage values"""
+        """Calculate fallback investment score - work with percentage values"""
         score = 0
-        roe = data.get('ROE', data.get('ROA', 5.0) * 1.5)  # FIXED: Work with percentage values
+        roe = data.get('ROE', data.get('ROA', 5.0) * 1.5)  # Work with percentage values
         
-        # FIXED: Use percentage thresholds (15% not 0.15)
+        # Use percentage thresholds (15.0 not 0.15)
         if roe > 15.0: score += 35
         elif roe > 10.0: score += 25
         elif roe > 5.0: score += 15
         
-        roa = data.get('ROA', 5.0)  # FIXED: Default to 5% not 0.05
+        roa = data.get('ROA', 5.0)  # Default to 5.0%
         if roa > 8.0: score += 25
         elif roa > 5.0: score += 15
         
-        npm = data.get('Net Profit Margin', 8.0)  # FIXED: Default to 8% not 0.08
+        npm = data.get('Net Profit Margin', 8.0)  # Default to 8.0%
         if npm > 10.0: score += 20
         elif npm > 5.0: score += 10
         
@@ -687,11 +687,11 @@ elif page == "📊 Company Analysis":
         with col1:
             st.markdown("#### 💰 Profitability")
             if pd.notna(selected_data.get('ROE')):
-                st.metric("ROE", f"{selected_data['ROE']*100:.1f}%")  # SIMPLE FIX: Multiply by 100
+                st.metric("ROE", f"{selected_data['ROE']:.1f}%")  # NO multiplication - keep as is
             if pd.notna(selected_data.get('ROA')):
-                st.metric("ROA", f"{selected_data['ROA']*100:.1f}%")  # SIMPLE FIX: Multiply by 100
+                st.metric("ROA", f"{selected_data['ROA']:.1f}%")  # NO multiplication - keep as is
             if pd.notna(selected_data.get('Net Profit Margin')):
-                st.metric("Net Profit Margin", f"{selected_data['Net Profit Margin']*100:.1f}%")  # SIMPLE FIX: Multiply by 100
+                st.metric("Net Profit Margin", f"{selected_data['Net Profit Margin']:.1f}%")  # NO multiplication - keep as is
         
         with col2:
             st.markdown("#### ⚖️ Financial Health")
@@ -703,9 +703,9 @@ elif page == "📊 Company Analysis":
         with col3:
             st.markdown("#### 📊 Efficiency")
             if pd.notna(selected_data.get('Gross Margin')):
-                st.metric("Gross Margin", f"{selected_data['Gross Margin']*100:.1f}%")  # SIMPLE FIX: Multiply by 100
+                st.metric("Gross Margin", f"{selected_data['Gross Margin']:.1f}%")  # NO multiplication - keep as is
             if pd.notna(selected_data.get('Debt-to-Assets')):
-                st.metric("Debt-to-Assets", f"{selected_data['Debt-to-Assets']*100:.1f}%")  # SIMPLE FIX: Multiply by 100
+                st.metric("Debt-to-Assets", f"{selected_data['Debt-to-Assets']:.1f}%")  # NO multiplication - keep as is
         
         # AI Analysis Button
         if st.button("🤖 Generate AI Analysis", type="primary", key="company_analysis"):
