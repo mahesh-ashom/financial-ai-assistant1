@@ -703,7 +703,13 @@ elif page == "📊 Company Analysis":
         with col3:
             st.markdown("#### 📊 Efficiency")
             if pd.notna(selected_data.get('Gross Margin')):
-                st.metric("Gross Margin", f"{selected_data['Gross Margin']*100:.1f}%")  # ONLY Gross Margin gets *100
+                raw_value = selected_data['Gross Margin']
+                # Debug: Check if value is very small (like 0.003 instead of 30.3)
+                if raw_value < 1:
+                    display_value = raw_value * 100  # Convert 0.309 to 30.9%
+                else:
+                    display_value = raw_value  # Already in percentage format like 30.9
+                st.metric("Gross Margin", f"{display_value:.1f}%")
             if pd.notna(selected_data.get('Debt-to-Assets')):
                 st.metric("Debt-to-Assets", f"{selected_data['Debt-to-Assets']:.1%}")  # Keep original percentage format
         
