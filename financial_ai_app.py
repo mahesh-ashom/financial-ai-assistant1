@@ -1138,7 +1138,7 @@ with st.expander("🔧 Technical Details", expanded=False):
     st.write("• Risk assessment")
 
 st.markdown("---")
-st.markdown("*Saudi Food Sector Financial AI Assistant | Powered by Advanced Machine Learning*"):
+st.markdown("*Saudi Food Sector Financial AI Assistant | Powered by Advanced Machine Learning*")
             date_range = f"{df['Year'].min()}-{df['Year'].max()}"
             st.metric("Data Period", date_range)
         
