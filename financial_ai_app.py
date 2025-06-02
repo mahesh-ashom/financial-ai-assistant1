@@ -248,38 +248,30 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """FIXED: Clean financial data with consistent decimal format"""
+    """Clean financial data - FIXED: Keep original decimal values"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
     # FIXED: Define column types clearly
-    percentage_columns = ['Gross_Margin', 'Net_Profit_Margin', 'ROA', 'ROE', 'Debt_to_Assets']
-    ratio_columns = ['Current_Ratio', 'Debt_to_Equity']
+    numeric_columns = ['Gross_Margin', 'Net_Profit_Margin', 'ROA', 'ROE', 'Debt_to_Assets', 'Current_Ratio', 'Debt_to_Equity']
     
-    # FIXED: Clean percentage columns (store as decimals)
-    for col in percentage_columns:
+    for col in numeric_columns:
         if col in df.columns:
-            # Clean string values
+            # Clean strings (remove % signs, commas, spaces)
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
             
             # Convert to numeric
             df[col] = pd.to_numeric(df[col], errors='coerce')
             
-            # FIXED: Smart conversion - only if value > 1 (percentage form)
-            df[col] = df[col].apply(lambda x: x/100 if pd.notna(x) and x > 1 else x)
-    
-    # Clean ratio columns (keep as numbers)
-    for col in ratio_columns:
-        if col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.replace(',', '').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            # FIXED: Only convert to decimal if value > 1 (percentage form)
+            if col in ['Gross_Margin', 'Net_Profit_Margin', 'ROA', 'ROE', 'Debt_to_Assets']:
+                df[col] = df[col].apply(lambda x: x/100 if pd.notna(x) and x > 1 else x)
     
     # Create derived columns if missing
     if 'Period_Type' not in df.columns and 'Period' in df.columns:
         df['Period_Type'] = df['Period'].apply(
-            lambda x: 'Annual' if 'Annual' in str(x) or (isinstance(x, (int, float)) and x == int(x)) else 'Quarterly'
+            lambda x: 'Annual' if 'Annual' in str(x) else 'Quarterly'
         )
     
     if 'Year' not in df.columns and 'Period' in df.columns:
@@ -287,15 +279,6 @@ def clean_financial_data(df):
     
     if 'Quarter' not in df.columns and 'Period' in df.columns:
         df['Quarter'] = df['Period'].str.extract(r'Q(\d)').fillna(0).astype(int)
-    
-    # Fill missing values with median for each company
-    for company in df['Company'].unique():
-        company_mask = df['Company'] == company
-        for col in percentage_columns + ratio_columns:
-            if col in df.columns:
-                company_median = df.loc[company_mask, col].median()
-                if not pd.isna(company_median):
-                    df.loc[company_mask, col] = df.loc[company_mask, col].fillna(company_median)
     
     return df
 
