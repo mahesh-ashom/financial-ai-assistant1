@@ -6,30 +6,22 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import warnings
-
-# Import xgboost to ensure it's available if needed by the loaded model
-try:
-    import xgboost
-except ImportError:
-    st.error("XGBoost library not found. Please install it (`pip install xgboost`) for AI features.")
-    # You might want to handle this more gracefully, perhaps disabling AI features
-
 warnings.filterwarnings('ignore')
 
 # Page configuration
 st.set_page_config(
-    page_title="Financial AI Assistant",
+    page_title="Financial AI Assistant", 
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ============================================================================
-# FIXED: ComprehensiveRatioPredictor class with robust feature handling
+# FIXED: Define ComprehensiveRatiPredictor class for pickle loading
 # ============================================================================
 
-class ComprehensiveRatioPredictor:
-    """Predicts all financial ratios using trained models - FIXED VERSION"""
+class ComprehensiveRatiPredictor:
+    """Predicts all financial ratios using trained models"""
 
     def __init__(self, models_dict, company_encoder=None):
         self.models = models_dict
@@ -37,128 +29,72 @@ class ComprehensiveRatioPredictor:
         self.available_ratios = list(models_dict.keys()) if models_dict else []
 
     def predict_all_ratios(self, input_data, prediction_method='iterative'):
-        """Predict all financial ratios from partial input - FIXED LOGIC"""
+        """Predict all financial ratios from partial input - FIXED input handling"""
         results = {}
         input_copy = input_data.copy()
 
         # Handle company encoding if needed
         if self.le_company and 'Company' in input_copy:
             try:
-                # Check if the company is known by the encoder
                 if hasattr(self.le_company, 'classes_') and input_copy['Company'] in self.le_company.classes_:
                     input_copy['Company_Encoded'] = self.le_company.transform([input_copy['Company']])[0]
                 else:
-                    # Handle unknown companies - assign a default encoding (e.g., -1 or 0)
-                    # Or handle based on how the model was trained for unseen categories
-                    input_copy['Company_Encoded'] = 0 # Assuming 0 is a safe default or represents 'unknown'
-                    st.warning(f"Company '{input_copy['Company']}' not recognized by the model encoder. Using default encoding.")
-            except Exception as e:
-                st.error(f"Error encoding company: {e}")
-                input_copy['Company_Encoded'] = 0 # Fallback encoding
+                    input_copy['Company_Encoded'] = 0
+            except:
+                input_copy['Company_Encoded'] = 0
 
-        # Convert percentage inputs (assuming they come in as 0-100) to decimals (0-1)
-        # This is crucial for consistency with model training data
-        percentage_columns = ['Gross_Margin', 'Net_Profit_Margin', 'ROA', 'ROE', 'Debt_to_Assets']
-        ratio_columns = ['Current_Ratio', 'Debt_to_Equity']
-
+        # FIXED: Clean input values with correct handling for different data types
         for key, value in input_copy.items():
-            try:
-                # Ensure value is numeric before processing
-                numeric_value = pd.to_numeric(value, errors='coerce')
-                if pd.isna(numeric_value):
-                    input_copy[key] = np.nan # Keep as NaN if conversion fails
-                    continue
-
-                # Convert percentage columns (expected range 0-100) to decimal (0-1)
-                if key in percentage_columns:
-                     # Check if the value looks like a percentage (e.g., > 1 or specific input context)
-                     # Assuming custom inputs are 0-100, historical might already be decimal
-                     # Let's refine this based on where input_data comes from (CSV vs Custom Input)
-                     # For now, assume values > 1 are percentages needing division by 100
-                     if numeric_value > 1:
-                         input_copy[key] = numeric_value / 100.0
-                     else:
-                         input_copy[key] = numeric_value # Assume already decimal
-                # Keep ratio columns as they are (already numeric)
-                elif key in ratio_columns:
-                    input_copy[key] = numeric_value
-                # Handle other potential numeric columns like Year, Quarter
-                elif key in ['Year', 'Quarter', 'Company_Encoded']:
-                     input_copy[key] = numeric_value
-                # else: handle other non-numeric keys if necessary
-
-            except Exception as e:
-                 st.warning(f"Could not process input for {key}: {value}. Error: {e}. Setting to NaN.")
-                 input_copy[key] = np.nan
-
+            if isinstance(value, str):
+                try:
+                    cleaned_value = str(value).replace('%', '').replace(',', '').strip()
+                    numeric_value = float(cleaned_value)
+                    
+                    # FIXED: Handle based on column type, not value size
+                    if key == 'Gross_Margin':
+                        # Gross_Margin comes as string "30.9", convert to decimal
+                        input_copy[key] = numeric_value / 100  # 30.9 → 0.309
+                    else:
+                        # Other values, keep as is
+                        input_copy[key] = numeric_value
+                except:
+                    input_copy[key] = np.nan
 
         # Iterative prediction approach
         if prediction_method == 'iterative' and self.models:
-            max_iterations = 3
-            for iteration in range(max_iterations):
-                predicted_in_iteration = False
+            for iteration in range(3):
                 for ratio in self.available_ratios:
-                    # Predict only if the ratio is missing or NaN
                     if ratio not in input_copy or pd.isna(input_copy.get(ratio)):
                         if ratio in self.models:
                             model_info = self.models[ratio]
-                            # Check if model_info is a dict with 'model' and 'features'
                             if isinstance(model_info, dict) and 'model' in model_info:
                                 model = model_info['model']
                                 features = model_info.get('features', [])
 
-                                # Check if enough features are available
-                                available_features_values = {f: input_copy.get(f) for f in features if f in input_copy and pd.notna(input_copy.get(f))}
+                                available_features = [f for f in features
+                                                    if f in input_copy and not pd.isna(input_copy.get(f))]
 
-                                # Define minimum required features (e.g., 50%)
-                                min_required_features = max(1, int(len(features) * 0.5))
-
-                                if len(available_features_values) >= min_required_features:
+                                if len(available_features) >= len(features) * 0.5:
                                     try:
-                                        # Prepare feature vector, imputing missing ones (e.g., with 0 or mean)
-                                        # Using 0 for simplicity, but mean/median might be better depending on training
-                                        feature_vector = [available_features_values.get(f, 0) for f in features]
+                                        feature_values = []
+                                        for feature in features:
+                                            if feature in input_copy and not pd.isna(input_copy.get(feature)):
+                                                feature_values.append(input_copy[feature])
+                                            else:
+                                                feature_values.append(0)
 
                                         if hasattr(model, 'predict'):
-                                            prediction = model.predict([feature_vector])[0]
-
-                                            # Basic sanity check on prediction (optional)
-                                            # e.g., cap unreasonable values
-                                            # if ratio in percentage_columns:
-                                            #     prediction = max(0, min(1, prediction)) # Cap between 0 and 1
-
+                                            prediction = model.predict([feature_values])[0]
                                             input_copy[ratio] = prediction
-                                            predicted_in_iteration = True
 
-                                            # Calculate confidence based on available features
-                                            feature_availability_ratio = len(available_features_values) / len(features) if features else 1
-                                            if feature_availability_ratio >= 0.8:
-                                                confidence = 'High'
-                                            elif feature_availability_ratio >= 0.5:
-                                                confidence = 'Medium'
-                                            else:
-                                                confidence = 'Low'
-
+                                            confidence = 'High' if len(available_features) >= len(features) * 0.8 else 'Medium'
                                             results[ratio] = {
                                                 'predicted_value': prediction,
                                                 'confidence': confidence,
-                                                'iteration': iteration + 1,
-                                                'features_used': list(available_features_values.keys()),
-                                                'features_missing': [f for f in features if f not in available_features_values]
+                                                'iteration': iteration + 1
                                             }
                                     except Exception as e:
-                                        st.warning(f"Could not predict {ratio} in iteration {iteration+1}. Error: {e}")
-                                        # Ensure the ratio remains NaN or missing if prediction fails
-                                        if ratio not in input_copy:
-                                             input_copy[ratio] = np.nan
-                                else:
-                                     # Not enough features to predict this ratio in this iteration
-                                     pass
-                            else:
-                                 st.warning(f"Model information for ratio '{ratio}' is not in the expected format.")
-                # If no new predictions were made in this iteration, stop early
-                if not predicted_in_iteration:
-                    break
+                                        pass
 
         return results, input_copy
 
@@ -166,46 +102,34 @@ class ComprehensiveRatioPredictor:
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem; /* Adjusted size */
-        color: #004488; /* Darker blue */
+        font-size: 3rem;
+        color: #1f77b4;
         text-align: center;
-        margin-bottom: 1.5rem;
-        font-weight: bold;
-    }
-    .sub-header {
-        font-size: 1.5rem;
-        color: #333333;
-        margin-top: 1.5rem;
-        margin-bottom: 0.5rem;
-        border-bottom: 2px solid #004488;
-        padding-bottom: 0.3rem;
+        margin-bottom: 2rem;
     }
     .metric-card {
-        background-color: #f8f9fa;
+        background-color: #f0f2f6;
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
-        border: 1px solid #dee2e6;
     }
-    .stAlert > div {
-         border-radius: 0.5rem; /* Rounded corners for alerts */
-    }
-    .stButton>button {
+    .recommendation-buy {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        padding: 1rem;
         border-radius: 0.5rem;
-        background-color: #004488;
-        color: white;
-        border: none;
     }
-    .stButton>button:hover {
-        background-color: #002244;
-        color: white;
+    .recommendation-sell {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        padding: 1rem;
+        border-radius: 0.5rem;
     }
-    /* Make sliders look cleaner */
-    .stSlider [data-baseweb="slider"] {
-        background-color: #dee2e6;
-    }
-    .stSlider [data-baseweb="slider"] > div:nth-child(2) {
-        background-color: #004488;
+    .recommendation-hold {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        padding: 1rem;
+        border-radius: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -216,731 +140,1127 @@ st.markdown("**Saudi Food Sector Investment Analysis System**")
 st.markdown("*Analyze Almarai, Savola, and NADEC with AI-powered insights*")
 
 # ============================================================================
-# Enhanced AI System Loading with Clearer Status & Fallback Info
+# Enhanced AI System Loading with Multiple Fallbacks
 # ============================================================================
 
 @st.cache_resource
 def load_comprehensive_ai_system():
-    """Load the comprehensive AI system with enhanced error handling and status reporting"""
-    predictor_path = 'comprehensive_ratio_predictor.pkl'
-    encoder_path = 'company_encoder.pkl'
-    ai_status = {'status': 'UNKNOWN', 'message': '', 'predictor': None, 'encoder': None, 'models': [], 'model_count': 0}
-
+    """Load the comprehensive AI system from Colab with enhanced error handling"""
     try:
-        # Attempt to load the main predictor
-        comprehensive_predictor = joblib.load(predictor_path)
-        ai_status['predictor'] = comprehensive_predictor
-
-        # Attempt to load the company encoder
+        # Try to load the main comprehensive predictor
+        comprehensive_predictor = joblib.load('comprehensive_ratio_predictor.pkl')
+        
+        # Try to load company encoder
         try:
-            company_encoder = joblib.load(encoder_path)
-            ai_status['encoder'] = company_encoder
-        except FileNotFoundError:
-            ai_status['message'] += f"Optional encoder file '{encoder_path}' not found. Company encoding might be limited. "
-            company_encoder = None # Continue without encoder if optional
-        except Exception as e:
-            ai_status['message'] += f"Error loading company encoder '{encoder_path}': {str(e)[:100]}. Proceeding without it. "
+            company_encoder = joblib.load('company_encoder.pkl')
+        except:
             company_encoder = None
-
-        # Verify the loaded predictor has models
+        
+        # Check if the system has models
         if hasattr(comprehensive_predictor, 'models') and comprehensive_predictor.models:
             available_models = list(comprehensive_predictor.models.keys())
-            ai_status.update({
+            
+            return {
                 'status': 'AI_MODELS_ACTIVE',
-                'message': f"✅ Successfully loaded comprehensive AI system with {len(available_models)} models.",
-                'models': available_models,
+                'comprehensive_predictor': comprehensive_predictor,
+                'company_encoder': company_encoder,
+                'available_models': available_models,
                 'model_count': len(available_models)
-            })
+            }
         else:
-            # Predictor loaded but seems empty or invalid
-            ai_status.update({
-                'status': 'FALLBACK_MODE',
-                'message': f"⚠️ Loaded predictor from '{predictor_path}' but found no valid models inside. Using fallback calculations."
-            })
-
-    except FileNotFoundError:
-        ai_status.update({
-            'status': 'FALLBACK_MODE',
-            'message': f"❌ Main AI model file '{predictor_path}' not found. Using fallback calculations."
-        })
-    except ModuleNotFoundError as e:
-         # Specific handling for missing dependencies like xgboost
-        ai_status.update({
-            'status': 'FALLBACK_MODE',
-            'message': f"❌ Model loading failed due to missing library: '{e.name}'. Please install required libraries (check requirements.txt). Using fallback calculations."
-        })
+            return {'status': 'FALLBACK_MODE', 'error': 'No models found in predictor'}
+            
     except Exception as e:
-        # Catch other potential loading errors
-        ai_status.update({
-            'status': 'FALLBACK_MODE',
-            'message': f"❌ Error loading AI model from '{predictor_path}': {str(e)[:150]}. Using fallback calculations."
-        })
-
-    # Display status message in the sidebar
-    if ai_status['status'] == 'AI_MODELS_ACTIVE':
-        st.sidebar.success(ai_status['message'])
-        st.sidebar.info(f"Available AI Models: {', '.join(ai_status['models'])}")
-    else:
-        st.sidebar.error("AI System Status: Using Mathematical Fallbacks")
-        st.sidebar.warning(ai_status['message'])
-
-    return ai_status
+        # Try to load individual model files as backup
+        try:
+            individual_models = {}
+            model_files = [
+                ('model_roe.pkl', 'ROE'),
+                ('model_roa.pkl', 'ROA'),
+                ('model_net_profit_margin.pkl', 'Net_Profit_Margin'),
+                ('model_gross_margin.pkl', 'Gross_Margin'),
+                ('model_debt_to_equity.pkl', 'Debt_to_Equity'),
+                ('model_debt_to_assets.pkl', 'Debt_to_Assets')
+            ]
+            
+            for model_file, ratio_name in model_files:
+                try:
+                    model = joblib.load(model_file)
+                    individual_models[ratio_name] = model
+                except:
+                    continue
+            
+            if individual_models:
+                # Create a simple predictor with individual models
+                predictor = ComprehensiveRatiPredictor(individual_models, None)
+                
+                return {
+                    'status': 'AI_MODELS_ACTIVE',
+                    'comprehensive_predictor': predictor,
+                    'company_encoder': None,
+                    'available_models': list(individual_models.keys()),
+                    'model_count': len(individual_models)
+                }
+            
+        except:
+            pass
+        
+        return {
+            'status': 'FALLBACK_MODE', 
+            'error': f'Model loading failed: {str(e)[:100]}'
+        }
 
 # ============================================================================
-# FIXED: Data loading and cleaning functions with robust error handling
+# FIXED: Load financial data with correct percentage handling
 # ============================================================================
 
 @st.cache_data
 def load_financial_data():
-    """Load and prepare financial data with FIXED cleaning and error handling"""
-    possible_filenames = [
-        'SavolaAlmaraiNADECFinancialRatiosCSV.csv', # Check local first
-        '/home/ubuntu/upload/SavolaAlmaraiNADECFinancialRatiosCSV.csv', # Check upload dir
-        'Savola Almarai NADEC Financial Ratios CSV.csv', # With spaces
-        'Savola_Almarai_NADEC_Financial_Ratios_CSV.csv', # With underscores
-        'financial_data.csv',
-        'data.csv'
-    ]
-    df = None
-    loaded_filename = None
-
-    for filename in possible_filenames:
-        try:
-            df = pd.read_csv(filename)
-            loaded_filename = filename
-            st.success(f"✅ Data loaded successfully from: {loaded_filename}")
-            break
-        except FileNotFoundError:
-            continue # Try next filename
-        except Exception as e:
-            st.warning(f"⚠️ Could not read file '{filename}'. Error: {e}")
-            continue
-
-    if df is None:
-        st.error("❌ Critical Error: Could not find or load the financial data CSV file. App functionality will be limited.")
-        # Optionally return sample data or empty dataframe
-        # return create_sample_data()
-        return pd.DataFrame() # Return empty dataframe to avoid downstream errors
-
+    """Load and prepare financial data with comprehensive cleaning"""
     try:
+        # Try multiple possible filenames
+        possible_filenames = [
+            'Savola Almarai NADEC Financial Ratios CSV.csv.csv',
+            'Savola Almarai NADEC Financial Ratios CSV.csv', 
+            'Savola_Almarai_NADEC_Financial_Ratios_CSV.csv',
+            'financial_data.csv',
+            'data.csv'
+        ]
+        
+        df = None
+        loaded_filename = None
+        
+        for filename in possible_filenames:
+            try:
+                df = pd.read_csv(filename)
+                loaded_filename = filename
+                break
+            except:
+                continue
+        
+        if df is None:
+            st.warning("⚠️ CSV file not found. Using sample data for demonstration.")
+            return create_sample_data()
+        
+        st.success(f"✅ Data loaded from: {loaded_filename}")
+        
         # Clean the data with FIXED logic
-        df_cleaned = clean_financial_data(df.copy()) # Work on a copy
-        st.info(f"Data cleaned: {df_cleaned.shape[0]} records found.")
-        return df_cleaned
+        df = clean_financial_data(df)
+        
+        return df
+        
     except Exception as e:
-        st.error(f"❌ Error during data cleaning: {e}. Returning raw data.")
-        return df # Return raw data if cleaning fails
+        st.error(f"Error loading data: {e}")
+        return create_sample_data()
 
 def clean_financial_data(df):
-    """Clean financial data - Robust percentage/decimal handling"""
-    # Standardize column names (lowercase, replace spaces/special chars with underscore)
-    df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('[^\w_]', '', regex=True)
-    # Rename specific columns if needed after standardization
-    # e.g., df = df.rename(columns={'period_type': 'period_type'})
-
-    # Ensure essential columns exist
-    required_cols = ['company', 'year', 'period_type']
-    if not all(col in df.columns for col in required_cols):
-        st.warning(f"Missing required columns in CSV. Expected: {required_cols}. Found: {list(df.columns)}")
-        # Attempt to derive if possible (example below)
-        if 'period' in df.columns:
-             if 'year' not in df.columns:
-                 df['year'] = df['period'].astype(str).str.extract(r'(\d{4})').astype(float).fillna(method='ffill').astype(int)
-             if 'period_type' not in df.columns:
-                 df['period_type'] = df['period'].astype(str).apply(lambda x: 'Annual' if 'Annual' in x else ('Quarterly' if 'Q' in x else 'Unknown'))
-             if 'quarter' not in df.columns:
-                 df['quarter'] = df['period'].astype(str).str.extract(r'Q(\d)').fillna(0).astype(int)
-        else:
-            st.error("Cannot proceed without 'company', 'year', 'period_type' columns or derivable 'period' column.")
-            return pd.DataFrame() # Return empty if critical columns missing
-
-    # Define numeric columns (standardized names)
-    numeric_columns = [
-        'gross_margin', 'net_profit_margin', 'roa', 'roe', 'debt_to_assets',
-        'current_ratio', 'debt_to_equity'
-    ]
-    percentage_columns = ['gross_margin', 'net_profit_margin', 'roa', 'roe', 'debt_to_assets']
-
-    for col in numeric_columns:
+    """Clean financial data - FIXED: Handle mixed data types correctly"""
+    # Clean column names
+    df.columns = df.columns.str.strip()
+    
+    # FIXED: Define column types based on your actual CSV structure
+    string_percentage_columns = ['Gross_Margin']  # These are strings like "30.9"
+    decimal_percentage_columns = ['Net_Profit_Margin', 'ROA', 'ROE', 'Debt_to_Assets']  # These are decimals like 0.089
+    ratio_columns = ['Current_Ratio', 'Debt_to_Equity']  # These stay as ratios
+    
+    # Handle string percentage columns (Gross_Margin)
+    for col in string_percentage_columns:
         if col in df.columns:
-            # 1. Convert to string first to handle mixed types and clean
-            df[col] = df[col].astype(str)
-            # 2. Remove common non-numeric characters (%, ,, spaces)
-            df[col] = df[col].str.replace('%', '', regex=False).str.replace(',', '', regex=False).str.strip()
-            # 3. Convert to numeric, coercing errors to NaN
+            # Clean strings (remove % signs, commas, spaces) 
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
+            
+            # Convert to numeric and then to decimal for calculations
             df[col] = pd.to_numeric(df[col], errors='coerce')
-
-            # 4. Handle percentage conversion (if applicable)
-            if col in percentage_columns:
-                # Apply conversion only where the value is likely a percentage (e.g., > 1)
-                # This assumes decimals are stored as < 1 (e.g., 0.15 for 15%)
-                # and percentages as > 1 (e.g., 15 for 15%)
-                df[col] = df[col].apply(lambda x: x / 100.0 if pd.notna(x) and abs(x) > 1 else x)
-        else:
-            st.warning(f"Numeric column '{col}' not found in the data.")
-            df[col] = np.nan # Add missing column as NaN
-
-    # Ensure 'year' is integer
-    if 'year' in df.columns:
-        df['year'] = pd.to_numeric(df['year'], errors='coerce').fillna(0).astype(int)
-
-    # Ensure 'company' is string and stripped
-    if 'company' in df.columns:
-        df['company'] = df['company'].astype(str).str.strip()
-
-    # Drop rows where essential identifiers are missing
-    df.dropna(subset=['company', 'year', 'period_type'], inplace=True)
-
+            # Convert string percentages to decimals (30.9 → 0.309)
+            df[col] = df[col] / 100
+    
+    # Handle decimal percentage columns (ROE, ROA, etc.) - KEEP AS IS
+    for col in decimal_percentage_columns:
+        if col in df.columns:
+            # Just ensure they're numeric - DON'T divide by 100
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Handle ratio columns - KEEP AS IS  
+    for col in ratio_columns:
+        if col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.replace(',', '').str.strip()
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Create derived columns if missing
+    if 'Period_Type' not in df.columns and 'Period' in df.columns:
+        df['Period_Type'] = df['Period'].apply(
+            lambda x: 'Annual' if 'Annual' in str(x) or (isinstance(x, (int, float)) and x == int(x)) else 'Quarterly'
+        )
+    
+    if 'Year' not in df.columns and 'Period' in df.columns:
+        df['Year'] = df['Period'].str.extract(r'(\d{4})').astype(float).fillna(2023).astype(int)
+    
+    if 'Quarter' not in df.columns and 'Period' in df.columns:
+        df['Quarter'] = df['Period'].str.extract(r'Q(\d)').fillna(0).astype(int)
+    
+    # Fill missing values with median for each company
+    all_numeric_columns = string_percentage_columns + decimal_percentage_columns + ratio_columns
+    for company in df['Company'].unique():
+        company_mask = df['Company'] == company
+        for col in all_numeric_columns:
+            if col in df.columns:
+                company_median = df.loc[company_mask, col].median()
+                if not pd.isna(company_median):
+                    df.loc[company_mask, col] = df.loc[company_mask, col].fillna(company_median)
+    
     return df
 
-# Sample data function (optional, if CSV loading fails)
 def create_sample_data():
-    # ... (keep existing sample data generation logic if needed) ...
-    st.warning("Using generated sample data. Results may not be accurate.")
-    # Ensure sample data matches the cleaned format (decimals for percentages)
-    # ...
-    pass # Placeholder
+    """Create sample data - FIXED: Match your CSV structure exactly"""
+    companies = ['Almarai', 'Savola', 'NADEC']
+    years = [2020, 2021, 2022, 2023]
+    quarters = [1, 2, 3, 4]
+    
+    data = []
+    
+    # FIXED: Base ratios stored to match your CSV format
+    base_ratios = {
+        'Almarai': {
+            'Gross_Margin': 0.309,      # Will be stored as decimal (matches processed string "30.9")
+            'Net_Profit_Margin': 0.105, # Decimal (matches your CSV)
+            'ROA': 0.057,               # Decimal (matches your CSV)
+            'ROE': 0.115,               # Decimal (matches your CSV) 
+            'Current_Ratio': 1.40,      # Ratio (matches your CSV)
+            'Debt_to_Equity': 1.03,     # Ratio (matches your CSV)
+            'Debt_to_Assets': 0.51      # Decimal (matches your CSV)
+        },
+        'Savola': {
+            'Gross_Margin': 0.203,      # Decimal
+            'Net_Profit_Margin': 0.045, # Decimal
+            'ROA': 0.040,               # Decimal
+            'ROE': 0.126,               # Decimal
+            'Current_Ratio': 0.84,      # Ratio
+            'Debt_to_Equity': 2.14,     # Ratio
+            'Debt_to_Assets': 0.68      # Decimal
+        },
+        'NADEC': {
+            'Gross_Margin': 0.370,      # Decimal
+            'Net_Profit_Margin': 0.094, # Decimal
+            'ROA': 0.059,               # Decimal
+            'ROE': 0.084,               # Decimal
+            'Current_Ratio': 1.96,      # Ratio
+            'Debt_to_Equity': 0.42,     # Ratio
+            'Debt_to_Assets': 0.30      # Decimal
+        }
+    }
+    
+    for company in companies:
+        for year in years:
+            # Annual data
+            annual_ratios = base_ratios[company].copy()
+            # Add some year-over-year variation
+            for ratio in annual_ratios:
+                annual_ratios[ratio] *= (1 + np.random.normal(0, 0.1))
+            
+            data.append({
+                'Company': company,
+                'Period': f'{year} Annual',
+                'Period_Type': 'Annual',
+                'Year': year,
+                'Quarter': 0,
+                **annual_ratios
+            })
+            
+            # Quarterly data
+            for quarter in quarters:
+                quarterly_ratios = base_ratios[company].copy()
+                # Add quarterly variation
+                for ratio in quarterly_ratios:
+                    quarterly_ratios[ratio] *= (1 + np.random.normal(0, 0.15))
+                
+                data.append({
+                    'Company': company,
+                    'Period': f'{year} Q{quarter}',
+                    'Period_Type': 'Quarterly',
+                    'Year': year,
+                    'Quarter': quarter,
+                    **quarterly_ratios
+                })
+    
+    return pd.DataFrame(data)
 
 # ============================================================================
-# Enhanced Financial AI Class with Fallback Logic
+# FIXED: Enhanced Financial AI Class with correct percentage handling
 # ============================================================================
 
 class EnhancedFinancialAI:
-    def __init__(self, ai_system_status, financial_data):
-        self.ai_status = ai_system_status
-        self.df = financial_data
-        self.predictor = ai_system_status.get('predictor')
-        self.encoder = ai_system_status.get('encoder')
-
-    def _get_historical_data(self, company, year, period_type):
-        """Retrieve historical data for a specific company, year, and period."""
-        if self.df.empty:
-            return pd.Series(dtype='float64') # Return empty series if no data
+    def __init__(self, ai_system):
+        self.ai_system = ai_system
+        self.status = ai_system['status']
         
-        # Filter based on standardized column names
-        data = self.df[
-            (self.df['company'].str.lower() == company.lower()) &
-            (self.df['year'] == year) &
-            (self.df['period_type'].str.lower() == period_type.lower())
-        ]
-        if not data.empty:
-            # Return the first match as a Series
-            return data.iloc[0]
+        if self.status == 'AI_MODELS_ACTIVE':
+            self.comprehensive_predictor = ai_system['comprehensive_predictor']
+            self.company_encoder = ai_system['company_encoder']
         else:
-            # st.warning(f"No historical data found for {company}, {year}, {period_type}")
-            return pd.Series(dtype='float64') # Return empty series if no match
-
-    def _mathematical_fallback_prediction(self, company, year, period_type):
-        """Basic fallback using historical averages or simple rules."""
-        # Example: Return last year's annual data or overall average
-        last_year_data = self._get_historical_data(company, year - 1, 'Annual')
-        if not last_year_data.empty:
-            return last_year_data
-        # Fallback further: company average
-        company_avg = self.df[self.df['company'].str.lower() == company.lower()].select_dtypes(include=np.number).mean()
-        if not company_avg.empty:
-            return company_avg
-        # Ultimate fallback: empty series
-        return pd.Series(dtype='float64')
-
-    def predict_ratios(self, company, year, period_type='Annual'):
-        """Predict ratios using AI if available, otherwise use fallback."""
-        if self.ai_status['status'] == 'AI_MODELS_ACTIVE' and self.predictor:
-            # Prepare input data for AI model
-            # Needs historical data as features, potentially
-            # This part depends heavily on how the 'comprehensive_ratio_predictor.pkl' expects input
-            # Assuming it needs current knowns + potentially lagged features
-            historical_data = self._get_historical_data(company, year, period_type)
-            if historical_data.empty:
-                 historical_data = self._get_historical_data(company, year -1, 'Annual') # Try last year
-            
-            input_dict = historical_data.to_dict() if not historical_data.empty else {}
-            input_dict['Company'] = company # Ensure Company name is passed
-            input_dict['Year'] = year
-            # Add other necessary features if not present (e.g., Quarter)
-            input_dict.setdefault('Quarter', 0 if period_type == 'Annual' else 1) # Example default
-
+            self.comprehensive_predictor = None
+            self.company_encoder = None
+    
+    def comprehensive_analysis(self, company_data):
+        """Perform comprehensive analysis using AI or fallbacks"""
+        
+        if self.status == 'AI_MODELS_ACTIVE' and self.comprehensive_predictor:
             try:
-                # Use the predictor's method
-                predictions, filled_data = self.predictor.predict_all_ratios(input_dict)
-                # Return the dictionary containing all available/predicted ratios
-                # st.write("AI Prediction Input:", input_dict)
-                # st.write("AI Prediction Output (Filled Data):", filled_data)
-                # st.write("AI Prediction Details:", predictions)
-                return filled_data # Return the dict with original + predicted values
+                # Use the comprehensive AI system from Colab
+                predictions, complete_data = self.comprehensive_predictor.predict_all_ratios(
+                    company_data, 
+                    prediction_method='iterative'
+                )
+                
+                # Extract predicted ROE
+                predicted_roe = predictions.get('ROE', {}).get('predicted_value', company_data.get('ROA', 0.05) * 1.5)
+                
+                # Create investment recommendation based on AI predictions
+                investment_score = self._calculate_ai_investment_score(complete_data, predictions)
+                
+                if investment_score >= 70:
+                    investment_rec, confidence = "Strong Buy", 0.85
+                elif investment_score >= 60:
+                    investment_rec, confidence = "Buy", 0.75
+                elif investment_score >= 40:
+                    investment_rec, confidence = "Hold", 0.65
+                else:
+                    investment_rec, confidence = "Sell", 0.55
+                
+                # Determine company status
+                company_status = self._get_ai_company_status(complete_data)
+                
+                return {
+                    'predicted_roe': predicted_roe,
+                    'investment_recommendation': investment_rec,
+                    'investment_confidence': confidence,
+                    'company_status': company_status,
+                    'investment_score': investment_score,
+                    'ai_predictions': predictions,
+                    'prediction_method': 'AI_COMPREHENSIVE_SYSTEM'
+                }
+                
             except Exception as e:
-                st.error(f"Error during AI prediction: {e}. Falling back to mathematical methods.")
-                # Fallback on prediction error
-                fallback_data = self._mathematical_fallback_prediction(company, year, period_type)
-                return fallback_data.to_dict() if not fallback_data.empty else {}
+                st.warning(f"AI prediction failed: {e}. Using fallback method.")
+                return self._fallback_analysis(company_data)
         else:
-            # Use mathematical fallback if AI is not active
-            fallback_data = self._mathematical_fallback_prediction(company, year, period_type)
-            return fallback_data.to_dict() if not fallback_data.empty else {}
-
-    def perform_health_check(self, company, year, period_type='Annual'):
-        """Perform financial health check based on key ratios."""
-        data_dict = self.predict_ratios(company, year, period_type)
-        if not data_dict:
-             return "Could not retrieve or predict data for health check.", {}
-
-        # Define thresholds (example)
-        thresholds = {
-            'current_ratio': (1.5, 2.5), # Ideal range
-            'debt_to_equity': (0.5, 1.5),
-            'roa': (0.05, float('inf')), # Minimum acceptable
-            'net_profit_margin': (0.1, float('inf'))
-        }
-        issues = []
-        # Use .get(key, default_value) for safety
-        cr = data_dict.get('current_ratio', 0)
-        de = data_dict.get('debt_to_equity', float('inf'))
-        roa = data_dict.get('roa', 0)
-        npm = data_dict.get('net_profit_margin', 0)
-
-        if not (thresholds['current_ratio'][0] <= cr <= thresholds['current_ratio'][1]):
-            issues.append(f"Current Ratio ({cr:.2f}) outside ideal range {thresholds['current_ratio']}")
-        if not (thresholds['debt_to_equity'][0] <= de <= thresholds['debt_to_equity'][1]):
-            issues.append(f"Debt-to-Equity ({de:.2f}) outside ideal range {thresholds['debt_to_equity']}")
-        if roa < thresholds['roa'][0]:
-            issues.append(f"ROA ({roa:.2%}) below minimum {thresholds['roa'][0]:.1%}")
-        if npm < thresholds['net_profit_margin'][0]:
-            issues.append(f"Net Profit Margin ({npm:.2%}) below minimum {thresholds['net_profit_margin'][0]:.1%}")
-
-        if not issues:
-            summary = f"✅ Strong Financial Health for {company} ({year} {period_type}). All key ratios within healthy ranges."
-        else:
-            summary = f"⚠️ Potential Financial Health Concerns for {company} ({year} {period_type}):\n- " + "\n- ".join(issues)
-
-        return summary, data_dict
-
-    def generate_recommendation(self, company, year, period_type='Annual'):
-        """Generate investment recommendation based on AI/fallback data."""
-        data_dict = self.predict_ratios(company, year, period_type)
-        if not data_dict:
-            return "Insufficient data for recommendation.", "N/A", {} 
-
-        # Simple rule-based recommendation (example)
+            return self._fallback_analysis(company_data)
+    
+    def _calculate_ai_investment_score(self, complete_data, predictions):
+        """Calculate investment score using AI predictions - FIXED LOGIC"""
         score = 0
-        roe = data_dict.get('roe', 0)
-        roa = data_dict.get('roa', 0)
-        npm = data_dict.get('net_profit_margin', 0)
-        de = data_dict.get('debt_to_equity', 1.0) # Default to 1 if missing
-
-        if roe > 0.15: score += 2
-        elif roe > 0.10: score += 1
-        if roa > 0.07: score += 2
-        elif roa > 0.04: score += 1
-        if npm > 0.12: score += 1
-        if de < 1.0: score += 1
-        elif de > 2.0: score -=1
-
-        if score >= 5:
-            rec = "Strong Buy"
-            rec_style = "recommendation-buy"
-        elif score >= 3:
-            rec = "Buy"
-            rec_style = "recommendation-buy"
-        elif score >= 1:
-            rec = "Hold"
-            rec_style = "recommendation-hold"
-        else:
-            rec = "Sell"
-            rec_style = "recommendation-sell"
         
-        # Add AI confidence if available
-        if self.ai_status['status'] == 'AI_MODELS_ACTIVE':
-             rec += " (AI Assisted)"
+        # Use predicted ROE with correct decimal thresholds
+        roe = predictions.get('ROE', {}).get('predicted_value', complete_data.get('ROE', 0))
+        if roe > 0.15: score += 30  # 15%
+        elif roe > 0.10: score += 20  # 10%
+        elif roe > 0.05: score += 10  # 5%
+        
+        # Use predicted ROA with correct decimal thresholds
+        roa = predictions.get('ROA', {}).get('predicted_value', complete_data.get('ROA', 0))
+        if roa > 0.08: score += 25  # 8%
+        elif roa > 0.05: score += 15  # 5%
+        elif roa > 0.02: score += 5   # 2%
+        
+        # Use predicted Net Profit Margin with correct decimal thresholds
+        npm = predictions.get('Net_Profit_Margin', {}).get('predicted_value', complete_data.get('Net_Profit_Margin', 0))
+        if npm > 0.10: score += 20  # 10%
+        elif npm > 0.05: score += 10  # 5%
+        
+        # Debt ratios (these stay as ratios)
+        debt_equity = predictions.get('Debt_to_Equity', {}).get('predicted_value', complete_data.get('Debt_to_Equity', 1))
+        if debt_equity < 0.5: score += 15
+        elif debt_equity < 1.0: score += 10
+        elif debt_equity < 1.5: score += 5
+        
+        return min(100, score)
+    
+    def _get_ai_company_status(self, complete_data):
+        """Determine company status using AI predictions"""
+        roe = complete_data.get('ROE', 0)
+        npm = complete_data.get('Net_Profit_Margin', 0)
+        
+        if roe > 0.15 and npm > 0.15:  # 15%
+            return 'Excellent'
+        elif roe > 0.10 and npm > 0.10:  # 10%
+            return 'Good'
+        elif roe > 0.05 and npm > 0.05:  # 5%
+            return 'Average'
         else:
-             rec += " (Fallback Based)"
-
-        return rec, rec_style, data_dict
+            return 'Poor'
+    
+    def _fallback_analysis(self, company_data):
+        """Fallback to mathematical calculations"""
+        roa = company_data.get('ROA', 0.05)
+        npm = company_data.get('Net_Profit_Margin', 0.08)
+        equity_multiplier = 1 + company_data.get('Debt_to_Equity', 0.8)
+        
+        predicted_roe = roa * equity_multiplier
+        investment_score = self._calculate_fallback_score(company_data)
+        
+        if investment_score >= 70:
+            investment_rec, confidence = "Buy", 0.70
+        elif investment_score >= 50:
+            investment_rec, confidence = "Hold", 0.65
+        else:
+            investment_rec, confidence = "Sell", 0.60
+        
+        return {
+            'predicted_roe': predicted_roe,
+            'investment_recommendation': investment_rec,
+            'investment_confidence': confidence,
+            'company_status': 'Average',
+            'investment_score': investment_score,
+            'prediction_method': 'MATHEMATICAL_FALLBACK'
+        }
+    
+    def _calculate_fallback_score(self, data):
+        """Calculate fallback investment score"""
+        score = 0
+        roe = data.get('ROE', data.get('ROA', 0.05) * 1.5)
+        
+        # Use correct decimal thresholds
+        if roe > 0.15: score += 35    # 15%
+        elif roe > 0.10: score += 25  # 10%
+        elif roe > 0.05: score += 15  # 5%
+        
+        roa = data.get('ROA', 0.05)
+        if roa > 0.08: score += 25    # 8%
+        elif roa > 0.05: score += 15  # 5%
+        
+        npm = data.get('Net_Profit_Margin', 0.08)
+        if npm > 0.10: score += 20    # 10%
+        elif npm > 0.05: score += 10  # 5%
+        
+        return min(100, score)
 
 # ============================================================================
-# Load Data and AI System
+# Load Data and Initialize AI System
 # ============================================================================
 
-ai_system_info = load_comprehensive_ai_system()
-financial_data_df = load_financial_data()
+# Load data and initialize AI system
+df = load_financial_data()
+ai_system = load_comprehensive_ai_system()
+enhanced_financial_ai = EnhancedFinancialAI(ai_system)
 
-# Initialize the AI/Fallback Handler
-if not financial_data_df.empty:
-    financial_ai = EnhancedFinancialAI(ai_system_info, financial_data_df)
-    companies = sorted(financial_data_df['company'].unique())
-    years = sorted(financial_data_df['year'].unique(), reverse=True)
-    periods = ['Annual', 'Quarterly'] # Assuming these are the main types
+# ============================================================================
+# Sidebar Navigation and AI Status
+# ============================================================================
+
+# Sidebar for navigation and AI status
+st.sidebar.title("🎯 Navigation")
+
+# AI System Status Display
+st.sidebar.subheader("🤖 AI System Status")
+
+if ai_system['status'] == 'AI_MODELS_ACTIVE':
+    st.sidebar.success("🤖 **AI MODELS ACTIVE**")
+    st.sidebar.write(f"✅ Comprehensive AI System Loaded")
+    st.sidebar.write(f"✅ Available Models: {ai_system['model_count']}")
+    st.sidebar.write(f"✅ Company Encoder: {'Ready' if ai_system['company_encoder'] else 'Fallback'}")
+    
+    # Show available AI capabilities
+    with st.sidebar.expander("🔍 AI Model Details", expanded=False):
+        st.write("**Available AI Models:**")
+        for model in ai_system['available_models']:
+            st.write(f"• {model} Prediction")
+        st.write("**Capabilities:**")
+        st.write("• ROE Prediction")
+        st.write("• Investment Recommendations")
+        st.write("• Financial Health Assessment")
+        st.write("• Risk Analysis")
 else:
-    # Handle case where data loading failed completely
-    st.error("Application cannot function without financial data.")
-    companies = []
-    years = []
-    periods = []
-    financial_ai = None # Ensure financial_ai is None if data is missing
+    st.sidebar.warning("⚠️ **Using Mathematical Fallbacks**")
+    st.sidebar.write(f"Error: {ai_system.get('error', 'Unknown error')}")
+    st.sidebar.write("Upload comprehensive_ratio_predictor.pkl to activate AI")
 
-# ============================================================================
-# Sidebar Navigation
-# ============================================================================
-st.sidebar.title("🧭 Navigation")
-analysis_type = st.sidebar.selectbox(
+# Main navigation
+page = st.sidebar.selectbox(
     "Choose Analysis Type:",
-    [
-        "Dashboard",
-        "Individual Company Analysis",
-        "Company Comparison",
-        "Financial Health Check",
-        "Ratio Prediction",
-        "Custom Financial Analysis"
-    ]
+    ["🏠 Dashboard", "📊 Company Analysis", "🔮 Ratio Prediction", "🏥 Health Check", "⚖️ Comparison", "🎯 Custom Analysis"]
 )
 
 # ============================================================================
-# Main Content Area - Based on Selection
+# Dashboard Page - FIXED percentage display
 # ============================================================================
 
-if financial_ai is None:
-    st.error("Financial data could not be loaded. Please check the CSV file and configuration.")
-
-# --- Dashboard --- (Example Structure)
-elif analysis_type == "Dashboard":
-    st.markdown("<h2 class='sub-header'>📊 Financial AI Dashboard</h2>", unsafe_allow_html=True)
-    st.markdown("Overview of Saudi Food Sector Companies (Almarai, Savola, NADEC)")
-
-    if not financial_data_df.empty:
-        latest_year = financial_data_df['year'].max()
-        st.info(f"Displaying latest available annual data ({latest_year})")
-        latest_annual_data = financial_data_df[
-            (financial_data_df['year'] == latest_year) &
-            (financial_data_df['period_type'].str.lower() == 'annual')
-        ]
-
-        if not latest_annual_data.empty:
-            cols = st.columns(len(companies))
-            for i, company in enumerate(companies):
-                with cols[i]:
-                    st.subheader(company)
-                    company_data = latest_annual_data[latest_annual_data['company'] == company]
-                    if not company_data.empty:
-                        roe = company_data['roe'].iloc[0]
-                        roa = company_data['roa'].iloc[0]
-                        npm = company_data['net_profit_margin'].iloc[0]
-                        st.metric("ROE", f"{roe:.2%}")
-                        st.metric("ROA", f"{roa:.2%}")
-                        st.metric("Net Profit Margin", f"{npm:.2%}")
-                        
-                        # Get recommendation
-                        rec, rec_style, _ = financial_ai.generate_recommendation(company, latest_year, 'Annual')
-                        st.markdown(f'<div class="{rec_style}">{rec}</div>', unsafe_allow_html=True)
-                    else:
-                        st.warning("No data for latest year.")
-            
-            # Sector Trends Plot
-            st.markdown("<h3 class='sub-header' style='margin-top: 2rem;'>📈 Sector ROE Trends (Annual)</h3>", unsafe_allow_html=True)
-            annual_data = financial_data_df[financial_data_df['period_type'].str.lower() == 'annual']
-            fig_trends = px.line(annual_data, x='year', y='roe', color='company',
-                                 title="Return on Equity (ROE) Over Time",
-                                 labels={'year': 'Year', 'roe': 'ROE (%)', 'company': 'Company'},
-                                 markers=True)
-            fig_trends.update_layout(yaxis_tickformat='.1%')
-            st.plotly_chart(fig_trends, use_container_width=True)
-        else:
-            st.warning(f"No annual data found for the latest year ({latest_year}).")
-    else:
-        st.warning("No financial data available for dashboard.")
-
-# --- Individual Company Analysis --- (FIXED N/A)
-elif analysis_type == "Individual Company Analysis":
-    st.markdown("<h2 class='sub-header'>🏢 Individual Company Analysis</h2>", unsafe_allow_html=True)
-    st.markdown("Deep dive into specific company performance.")
-
-    if companies and years and periods:
-        sel_company = st.selectbox("Select Company:", companies)
-        sel_year = st.selectbox("Select Year:", years)
-        sel_period = st.selectbox("Select Period:", periods)
-
-        if st.button("📊 Generate Analysis"):
-            st.subheader(f"Analysis for {sel_company} - {sel_year} {sel_period}")
-            
-            # Use the unified function to get data (historical or predicted)
-            data_dict = financial_ai.predict_ratios(sel_company, sel_year, sel_period)
-
-            if data_dict:
-                # Define ratios to display
-                profitability_ratios = ['gross_margin', 'net_profit_margin', 'roa', 'roe']
-                health_ratios = ['current_ratio', 'debt_to_equity', 'debt_to_assets']
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**Profitability Ratios**")
-                    for ratio in profitability_ratios:
-                        value = data_dict.get(ratio)
-                        # FIXED: Display N/A properly, format percentages
-                        display_value = f"{value:.2%}" if pd.notna(value) and ratio != 'current_ratio' and ratio != 'debt_to_equity' else (f"{value:.2f}" if pd.notna(value) else "N/A")
-                        st.metric(label=ratio.replace('_', ' ').title(), value=display_value)
-                
-                with col2:
-                    st.markdown("**Financial Health Ratios**")
-                    for ratio in health_ratios:
-                        value = data_dict.get(ratio)
-                        # FIXED: Display N/A properly, format percentages/ratios
-                        display_value = f"{value:.2%}" if pd.notna(value) and ratio == 'debt_to_assets' else (f"{value:.2f}" if pd.notna(value) else "N/A")
-                        st.metric(label=ratio.replace('_', ' ').title(), value=display_value)
-                
-                # Display AI prediction details if available
-                # This part needs refinement based on the actual structure of 'predictions' from ComprehensiveRatioPredictor
-                # if ai_system_info['status'] == 'AI_MODELS_ACTIVE' and 'predictions' in data_dict: # Assuming predictions are stored
-                #     st.markdown("**AI Prediction Details**")
-                #     st.json(data_dict['predictions']) # Display raw prediction info
-
-            else:
-                st.warning(f"Could not retrieve or predict data for {sel_company}, {sel_year}, {sel_period}.")
-    else:
-        st.warning("No data loaded. Cannot perform individual analysis.")
-
-# --- Company Comparison --- (Example Structure)
-elif analysis_type == "Company Comparison":
-    st.markdown("<h2 class='sub-header'>🆚 Company Comparison</h2>", unsafe_allow_html=True)
-    st.markdown("Side-by-side financial performance comparison.")
-
-    if companies and years and periods:
-        comp_year = st.selectbox("Comparison Year:", years, key="comp_year")
-        comp_period = st.selectbox("Comparison Period:", periods, key="comp_period")
-        comp_ratio = st.selectbox("Ratio to Compare:", 
-                                  financial_data_df.select_dtypes(include=np.number).columns.drop(['year', 'quarter'], errors='ignore'), 
-                                  key="comp_ratio", index=5) # Default to ROE index
-
-        if st.button("🔍 Compare Companies"):
-            st.subheader(f"Comparison for {comp_year} {comp_period} - Ratio: {comp_ratio.replace('_', ' ').title()}")
-            comparison_data = []
-            for company in companies:
-                # Use predict_ratios to get consistent data (historical or predicted)
-                data_dict = financial_ai.predict_ratios(company, comp_year, comp_period)
-                ratio_value = data_dict.get(comp_ratio, np.nan) # Get the specific ratio
-                comparison_data.append({
-                    'Company': company,
-                    comp_ratio: ratio_value
-                })
-            
-            comparison_df = pd.DataFrame(comparison_data).set_index('Company')
-            comparison_df.dropna(inplace=True)
-
-            if not comparison_df.empty:
-                st.dataframe(comparison_df.style.format({comp_ratio: "{:.2%}" if comp_ratio in percentage_columns else "{:.2f}"})) 
-                
-                # Visual Comparison
-                st.markdown(f"<h3 class='sub-header' style='margin-top: 1rem;'>📊 Visual Comparison - {comp_ratio.replace('_', ' ').title()}</h3>", unsafe_allow_html=True)
-                fig_comp = px.bar(comparison_df, y=comp_ratio, 
-                                  title=f"{comp_ratio.replace('_', ' ').title()} Comparison - {comp_year} {comp_period}",
-                                  labels={comp_ratio: comp_ratio.replace('_', ' ').title()},
-                                  text_auto=True)
-                fig_comp.update_layout(yaxis_tickformat='.1%' if comp_ratio in percentage_columns else '.2f')
-                st.plotly_chart(fig_comp, use_container_width=True)
-            else:
-                st.warning(f"No comparable data found for {comp_ratio} in {comp_year} {comp_period}.")
-    else:
-        st.warning("No data loaded. Cannot perform company comparison.")
-
-# --- Financial Health Check --- (Example Structure)
-elif analysis_type == "Financial Health Check":
-    st.markdown("<h2 class='sub-header'>🩺 Financial Health Assessment</h2>", unsafe_allow_html=True)
-    st.markdown("Comprehensive health analysis using multiple financial indicators.")
-
-    if companies and years and periods:
-        hc_company = st.selectbox("Select Company for Health Check:", companies, key="hc_company")
-        hc_year = st.selectbox("Select Year:", years, key="hc_year")
-        hc_period = st.selectbox("Select Period:", periods, key="hc_period")
-
-        if st.button("🔍 Perform Health Check"):
-            st.subheader(f"Health Check Results for {hc_company} - {hc_year} {hc_period}")
-            summary, data_dict = financial_ai.perform_health_check(hc_company, hc_year, hc_period)
-            
-            if data_dict:
-                st.markdown(summary) # Display the summary (potential issues)
-                # Optionally display the data used for the check
-                st.markdown("**Data Used for Check:**")
-                # Filter to show only relevant ratios
-                display_ratios = ['current_ratio', 'debt_to_equity', 'roa', 'net_profit_margin', 'roe', 'debt_to_assets']
-                display_dict = {k: data_dict[k] for k in display_ratios if k in data_dict}
-                st.json(display_dict) # Show the key ratios used
-            else:
-                 st.error(f"Could not perform health check for {hc_company}, {hc_year}, {hc_period}. Data unavailable.")
-    else:
-        st.warning("No data loaded. Cannot perform health check.")
-
-# --- Ratio Prediction --- (Example Structure)
-elif analysis_type == "Ratio Prediction":
-    st.markdown("<h2 class='sub-header'>🔮 Financial Ratio Prediction</h2>", unsafe_allow_html=True)
-    st.markdown("Predict future financial performance using AI and historical trends.")
-
-    if companies and years:
-        pred_company = st.selectbox("Company for Prediction:", companies, key="pred_company")
-        # Predict for the next year
-        current_max_year = max(years) if years else datetime.now().year
-        pred_year = st.number_input("Predict for Year:", min_value=current_max_year + 1, value=current_max_year + 1, step=1, key="pred_year")
-        pred_method = "AI Model (Advanced)" if ai_system_info['status'] == 'AI_MODELS_ACTIVE' else "Mathematical Fallback"
-        st.info(f"Prediction Method: {pred_method}")
-
-        # Display recent historical data
-        st.markdown(f"**Recent Historical Data: {pred_company} (Annual)**")
-        hist_data = financial_data_df[
-            (financial_data_df['company'] == pred_company) &
-            (financial_data_df['period_type'].str.lower() == 'annual')
-        ].sort_values('year', ascending=False).head(3)
+if page == "🏠 Dashboard":
+    st.header("📊 Financial AI Dashboard")
+    st.markdown("*Overview of Saudi Food Sector Performance*")
+    
+    if not df.empty:
+        # Key metrics overview
+        col1, col2, col3, col4 = st.columns(4)
         
-        if not hist_data.empty:
-            cols = st.columns(len(hist_data))
-            for i, year_hist in enumerate(hist_data['year']):
-                with cols[i]:
-                    st.metric("Year", str(year_hist))
-                    roe_hist = hist_data[hist_data['year'] == year_hist]['roe'].iloc[0]
-                    roa_hist = hist_data[hist_data['year'] == year_hist]['roa'].iloc[0]
-                    st.metric("ROE", f"{roe_hist:.2%}")
-                    st.metric("ROA", f"{roa_hist:.2%}")
-        else:
-             st.warning("No recent annual data found for context.")
-
-        if st.button("🚀 Generate Predictions"):
-            st.subheader(f"Predicted Ratios for {pred_company} - {pred_year} (Annual)")
-            predicted_data_dict = financial_ai.predict_ratios(pred_company, pred_year, 'Annual')
-
-            if predicted_data_dict:
-                # Display key predicted ratios
-                pred_ratios_disp = ['roe', 'roa', 'net_profit_margin', 'current_ratio', 'debt_to_equity']
-                cols_pred = st.columns(len(pred_ratios_disp))
-                for i, ratio in enumerate(pred_ratios_disp):
-                     with cols_pred[i]:
-                        value = predicted_data_dict.get(ratio)
-                        display_value = f"{value:.2%}" if pd.notna(value) and ratio in percentage_columns else (f"{value:.2f}" if pd.notna(value) else "N/A")
-                        st.metric(label=ratio.replace('_', ' ').title(), value=display_value)
+        with col1:
+            total_companies = df['Company'].nunique()
+            st.metric("Companies Analyzed", total_companies)
+        
+        with col2:
+            st.markdown("#### ⚖️ Financial Health")
+            if pd.notna(selected_data.get('Current_Ratio')):
+                st.metric("Current Ratio", f"{selected_data['Current_Ratio']:.2f}")
+            if pd.notna(selected_data.get('Debt_to_Equity')):
+                st.metric("Debt-to-Equity", f"{selected_data['Debt_to_Equity']:.2f}")
+        
+        with col3:
+            st.markdown("#### 📊 Efficiency")
+            if pd.notna(selected_data.get('Gross_Margin')):
+                st.metric("Gross Margin", f"{selected_data['Gross_Margin']:.1%}")
+            if pd.notna(selected_data.get('Debt_to_Assets')):
+                st.metric("Debt-to-Assets", f"{selected_data['Debt_to_Assets']:.1%}")
+        
+        # AI Analysis Button
+        if st.button("🤖 Generate AI Analysis", type="primary", key="company_analysis"):
+            with st.spinner("Analyzing financial data..."):
+                analysis_data = selected_data.to_dict()
+                results = enhanced_financial_ai.comprehensive_analysis(analysis_data)
                 
-                # Optionally show more details or confidence if available from AI
-                # st.write("Full Predicted Data:", predicted_data_dict)
+                # Add AI status message
+                if results.get('prediction_method') == 'AI_COMPREHENSIVE_SYSTEM':
+                    st.success("🎯 **AI Analysis Complete!** (Using trained models)")
+                else:
+                    st.info("📊 **Mathematical Analysis** (AI models not available)")
+                
+                st.markdown("---")
+                st.subheader("🎯 AI Investment Analysis")
+                
+                # Display results
+                col_a, col_b, col_c = st.columns(3)
+                
+                with col_a:
+                    st.metric("AI Predicted ROE", f"{results['predicted_roe']:.1%}")
+                
+                with col_b:
+                    rec = results['investment_recommendation']
+                    if rec in ["Strong Buy", "Buy"]:
+                        st.success(f"📈 {rec}")
+                    elif "Hold" in rec:
+                        st.warning(f"⚖️ {rec}")
+                    else:
+                        st.error(f"📉 {rec}")
+                
+                with col_c:
+                    confidence = results['investment_confidence']
+                    st.metric("AI Confidence", f"{confidence:.0%}")
+                
+                # Investment score and status
+                score = results['investment_score']
+                status = results['company_status']
+                
+                col_d, col_e = st.columns(2)
+                
+                with col_d:
+                    st.metric("Investment Score", f"{score}/100")
+                    st.progress(score / 100)
+                
+                with col_e:
+                    if status == "Excellent":
+                        st.success(f"🌟 Company Status: {status}")
+                    elif status == "Good":
+                        st.info(f"👍 Company Status: {status}")
+                    elif status == "Average":
+                        st.warning(f"📊 Company Status: {status}")
+                    else:
+                        st.error(f"⚠️ Company Status: {status}")
+
+# ============================================================================
+# Custom Analysis Page - FIXED percentage display
+# ============================================================================
+
+elif page == "🎯 Custom Analysis":
+    st.header("🎯 Custom Financial Analysis")
+    st.markdown("*Input your own financial ratios for AI analysis*")
+    
+    # Custom input form
+    st.subheader("📝 Enter Financial Data")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### Company Information")
+        custom_company = st.selectbox("Company Type:", ["Almarai", "Savola", "NADEC", "Custom Company"])
+        custom_year = st.number_input("Year:", min_value=2020, max_value=2030, value=2024)
+        custom_quarter = st.selectbox("Period:", ["Annual", "Q1", "Q2", "Q3", "Q4"])
+        
+        st.markdown("#### Profitability Ratios")
+        # FIXED: Input as percentage but convert to decimal for calculations
+        gross_margin = st.slider("Gross Margin (%)", 0, 100, 30) / 100
+        net_profit_margin = st.slider("Net Profit Margin (%)", 0, 50, 10) / 100
+        roa = st.slider("Return on Assets (%)", 0, 30, 8) / 100
+    
+    with col2:
+        st.markdown("#### Financial Health Ratios")
+        current_ratio = st.slider("Current Ratio", 0.0, 5.0, 1.5, 0.1)
+        debt_to_equity = st.slider("Debt-to-Equity", 0.0, 5.0, 0.8, 0.1)
+        debt_to_assets = st.slider("Debt-to-Assets (%)", 0, 100, 45) / 100
+        
+        st.markdown("#### Optional")
+        manual_roe = st.slider("Manual ROE (%) - Optional", 0, 50, 12) / 100
+        use_manual_roe = st.checkbox("Use Manual ROE (skip AI prediction)")
+    
+    # Analysis button
+    if st.button("🔍 ANALYZE CUSTOM DATA", type="primary", key="custom_analysis"):
+        # Prepare custom data
+        custom_data = {
+            'Company': custom_company,
+            'Year': custom_year,
+            'Quarter': 0 if custom_quarter == "Annual" else int(custom_quarter[1]),
+            'Gross_Margin': gross_margin,
+            'Net_Profit_Margin': net_profit_margin,
+            'ROA': roa,
+            'Current_Ratio': current_ratio,
+            'Debt_to_Equity': debt_to_equity,
+            'Debt_to_Assets': debt_to_assets
+        }
+        
+        # Add manual ROE if specified
+        if use_manual_roe:
+            custom_data['ROE'] = manual_roe
+        
+        with st.spinner("🤖 AI is analyzing your data..."):
+            # Get AI analysis
+            results = enhanced_financial_ai.comprehensive_analysis(custom_data)
+            
+            # Add AI status message
+            if results.get('prediction_method') == 'AI_COMPREHENSIVE_SYSTEM':
+                st.success("🎯 **AI Analysis Complete!** (Using trained models)")
             else:
-                st.error(f"Could not generate predictions for {pred_company}, {pred_year}.")
+                st.info("📊 **Mathematical Analysis** (AI models not available)")
+            
+            st.markdown("---")
+            st.subheader(f"🎯 Analysis Results: {custom_company}")
+            
+            # Create results display
+            result_col1, result_col2, result_col3, result_col4 = st.columns(4)
+            
+            with result_col1:
+                roe_display = manual_roe if use_manual_roe else results['predicted_roe']
+                st.metric("ROE", f"{roe_display:.1%}", help="Return on Equity")
+            
+            with result_col2:
+                rec = results['investment_recommendation']
+                color = "🟢" if rec in ["Strong Buy", "Buy"] else "🟡" if "Hold" in rec else "🔴"
+                st.metric("Investment Rec", f"{color} {rec}")
+            
+            with result_col3:
+                st.metric("AI Confidence", f"{results['investment_confidence']:.0%}")
+            
+            with result_col4:
+                st.metric("Investment Score", f"{results['investment_score']}/100")
+            
+            # Detailed analysis
+            st.markdown("#### 📊 Detailed Analysis")
+            
+            analysis_col1, analysis_col2 = st.columns(2)
+            
+            with analysis_col1:
+                st.markdown("**✅ Strengths:**")
+                strengths = []
+                if roa > 0.08:
+                    strengths.append(f"Strong ROA ({roa:.1%})")
+                if net_profit_margin > 0.10:
+                    strengths.append(f"Good profitability ({net_profit_margin:.1%})")
+                if current_ratio > 1.5:
+                    strengths.append(f"Strong liquidity ({current_ratio:.2f})")
+                if debt_to_equity < 0.8:
+                    strengths.append(f"Conservative debt ({debt_to_equity:.2f})")
+                
+                if strengths:
+                    for strength in strengths:
+                        st.write(f"• {strength}")
+                else:
+                    st.write("• Focus on improving key metrics")
+            
+            with analysis_col2:
+                st.markdown("**⚠️ Areas for Improvement:**")
+                concerns = []
+                if roa < 0.05:
+                    concerns.append(f"Low ROA ({roa:.1%}) - improve asset efficiency")
+                if net_profit_margin < 0.05:
+                    concerns.append(f"Low margins ({net_profit_margin:.1%}) - reduce costs")
+                if current_ratio < 1.2:
+                    concerns.append(f"Liquidity risk ({current_ratio:.2f}) - improve cash flow")
+                if debt_to_equity > 1.2:
+                    concerns.append(f"High leverage ({debt_to_equity:.2f}) - reduce debt")
+                
+                if concerns:
+                    for concern in concerns:
+                        st.write(f"• {concern}")
+                else:
+                    st.write("• Strong performance across all metrics!")
+
+# ============================================================================
+# Ratio Prediction Page - FIXED percentage display
+# ============================================================================
+
+elif page == "🔮 Ratio Prediction":
+    st.header("🔮 Financial Ratio Prediction")
+    st.markdown("*Predict future financial performance using AI and historical trends*")
+    
+    if not df.empty:
+        # Prediction settings
+        pred_col1, pred_col2 = st.columns(2)
+        
+        with pred_col1:
+            available_companies = sorted(df['Company'].unique())
+            pred_company = st.selectbox("Company for Prediction:", available_companies)
+            prediction_year = st.selectbox("Predict for Year:", [2024, 2025, 2026, 2027])
+        
+        with pred_col2:
+            prediction_method = st.selectbox("Prediction Method:", 
+                                           ["AI Model (Advanced)", "Trend Analysis", "Conservative Estimate"])
+        
+        # Get historical data for context
+        company_historical = df[df['Company'] == pred_company]
+        annual_historical = company_historical[company_historical['Period_Type'] == 'Annual'].sort_values('Year')
+        
+        if len(annual_historical) >= 2:
+            latest_data = annual_historical.iloc[-1]
+            
+            st.subheader(f"📊 Historical Context: {pred_company}")
+            
+            # Show recent trend
+            recent_years = annual_historical.tail(3)
+            
+            trend_col1, trend_col2, trend_col3 = st.columns(3)
+            
+            for i, (_, year_data) in enumerate(recent_years.iterrows()):
+                with [trend_col1, trend_col2, trend_col3][i]:
+                    st.markdown(f"**{int(year_data['Year'])}**")
+                    if pd.notna(year_data.get('ROE')):
+                        st.metric("ROE", f"{year_data['ROE']:.1%}")
+                    if pd.notna(year_data.get('ROA')):
+                        st.metric("ROA", f"{year_data['ROA']:.1%}")
+            
+            # Prediction button
+            if st.button("🎯 Generate Predictions", type="primary"):
+                with st.spinner("🔮 Generating predictions..."):
+                    # Create prediction data based on latest
+                    prediction_data = latest_data.to_dict()
+                    prediction_data['Year'] = prediction_year
+                    
+                    # Get AI prediction
+                    if prediction_method == "AI Model (Advanced)":
+                        results = enhanced_financial_ai.comprehensive_analysis(prediction_data)
+                        predicted_roe = results['predicted_roe']
+                        investment_rec = results['investment_recommendation']
+                        confidence = results['investment_confidence']
+                    else:
+                        # Simple trend-based prediction
+                        if len(annual_historical) >= 2:
+                            recent_roe = annual_historical['ROE'].tail(2).values
+                            if len(recent_roe) == 2 and not np.isnan(recent_roe).any():
+                                growth_rate = (recent_roe[1] - recent_roe[0]) / recent_roe[0] if recent_roe[0] != 0 else 0
+                                
+                                if prediction_method == "Conservative Estimate":
+                                    growth_rate *= 0.5  # More conservative
+                                
+                                predicted_roe = recent_roe[1] * (1 + growth_rate)
+                                predicted_roe = max(0, min(predicted_roe, 0.5))  # Bound predictions
+                            else:
+                                predicted_roe = latest_data.get('ROE', 0.1)
+                        else:
+                            predicted_roe = latest_data.get('ROE', 0.1)
+                        
+                        # Simple recommendation based on predicted ROE
+                        if predicted_roe > 0.15:
+                            investment_rec = "Buy"
+                            confidence = 0.75
+                        elif predicted_roe > 0.08:
+                            investment_rec = "Hold"
+                            confidence = 0.70
+                        else:
+                            investment_rec = "Sell"
+                            confidence = 0.65
+                    
+                    st.markdown("---")
+                    st.subheader(f"🔮 {pred_company} - {prediction_year} Predictions")
+                    
+                    # Display predictions
+                    pred_result_col1, pred_result_col2, pred_result_col3 = st.columns(3)
+                    
+                    with pred_result_col1:
+                        current_roe = latest_data.get('ROE', 0)
+                        roe_change = ((predicted_roe - current_roe) / current_roe * 100) if current_roe != 0 else 0
+                        st.metric("Predicted ROE", f"{predicted_roe:.1%}", f"{roe_change:+.1f}%")
+                    
+                    with pred_result_col2:
+                        st.metric("Investment Outlook", investment_rec)
+                    
+                    with pred_result_col3:
+                        st.metric("Prediction Confidence", f"{confidence:.0%}")
+
+# ============================================================================
+# Health Check Page - FIXED percentage display
+# ============================================================================
+
+elif page == "🏥 Health Check":
+    st.header("🏥 Financial Health Assessment")
+    st.markdown("*Comprehensive health analysis using multiple financial indicators*")
+    
+    if not df.empty:
+        # Health check settings
+        health_company = st.selectbox("Select Company for Health Check:", sorted(df['Company'].unique()))
+        
+        # Get latest data
+        company_data = df[df['Company'] == health_company]
+        annual_data = company_data[company_data['Period_Type'] == 'Annual'].sort_values('Year')
+        
+        if not annual_data.empty:
+            latest_data = annual_data.iloc[-1]
+            
+            # Health assessment
+            if st.button("🔍 Perform Health Check", type="primary"):
+                with st.spinner("🏥 Analyzing financial health..."):
+                    # Get AI analysis
+                    results = enhanced_financial_ai.comprehensive_analysis(latest_data.to_dict())
+                    
+                    st.markdown("---")
+                    st.subheader(f"🏥 Health Report: {health_company}")
+                    st.markdown(f"*Assessment Period: {int(latest_data['Year'])} Annual*")
+                    
+                    # Overall health score
+                    health_score = results['investment_score']
+                    
+                    health_col1, health_col2 = st.columns([1, 2])
+                    
+                    with health_col1:
+                        st.metric("Overall Health Score", f"{health_score}/100")
+                        st.progress(health_score / 100)
+                        
+                        # Health grade
+                        if health_score >= 80:
+                            st.success("🌟 Grade: A (Excellent)")
+                        elif health_score >= 70:
+                            st.success("👍 Grade: B (Good)")
+                        elif health_score >= 60:
+                            st.info("📊 Grade: C (Average)")
+                        elif health_score >= 50:
+                            st.warning("⚠️ Grade: D (Below Average)")
+                        else:
+                            st.error("🚨 Grade: F (Poor)")
+                    
+                    with health_col2:
+                        st.markdown("#### 📊 Health Indicators")
+                        
+                        # Individual health checks with FIXED percentage display
+                        health_indicators = [
+                            ("Profitability", latest_data.get('ROE', 0), 0.12, "ROE"),
+                            ("Asset Efficiency", latest_data.get('ROA', 0), 0.08, "ROA"),
+                            ("Profit Margins", latest_data.get('Net_Profit_Margin', 0), 0.10, "NPM"),
+                            ("Liquidity", latest_data.get('Current_Ratio', 0), 1.2, "CR"),
+                            ("Leverage", latest_data.get('Debt_to_Equity', 0), 1.0, "D/E", True)  # Lower is better
+                        ]
+                        
+                        for indicator, value, benchmark, code, *lower_better in health_indicators:
+                            is_lower_better = len(lower_better) > 0 and lower_better[0]
+                            
+                            if pd.notna(value):
+                                if is_lower_better:
+                                    status = "✅ Healthy" if value <= benchmark else "⚠️ Risk" if value <= benchmark * 1.5 else "🚨 High Risk"
+                                else:
+                                    status = "✅ Healthy" if value >= benchmark else "⚠️ Below Par" if value >= benchmark * 0.7 else "🚨 Poor"
+                                
+                                # FIXED: Display percentages correctly
+                                if code in ["ROE", "ROA", "NPM"]:
+                                    value_str = f"{value:.1%}"
+                                else:
+                                    value_str = f"{value:.2f}"
+                                
+                                st.write(f"**{indicator}:** {value_str} {status}")
+                            else:
+                                st.write(f"**{indicator}:** Data not available")
+
+# ============================================================================
+# Comparison Page - FIXED percentage display
+# ============================================================================
+
+elif page == "⚖️ Comparison":
+    st.header("⚖️ Company Comparison Analysis")
+    st.markdown("*Side-by-side financial performance comparison*")
+    
+    if not df.empty:
+        # Comparison settings
+        comp_col1, comp_col2 = st.columns(2)
+        
+        with comp_col1:
+            available_years = sorted(df['Year'].unique(), reverse=True)
+            comp_year = st.selectbox("Comparison Year:", available_years)
+        
+        with comp_col2:
+            comp_period = st.selectbox("Period:", ["Annual"])
+        
+        # Get comparison data
+        comparison_data = df[(df['Year'] == comp_year) & (df['Period_Type'] == 'Annual')]
+        
+        if not comparison_data.empty:
+            st.subheader(f"📊 Company Comparison - {comp_year} {comp_period}")
+            
+            # Create comparison table
+            metrics_to_compare = ['ROE', 'ROA', 'Net_Profit_Margin', 'Gross_Margin', 'Current_Ratio', 'Debt_to_Equity']
+            available_metrics = [m for m in metrics_to_compare if m in comparison_data.columns]
+            
+            if available_metrics:
+                # FIXED: Prepare display data with correct percentage formatting
+                display_data = comparison_data[['Company'] + available_metrics].copy()
+                
+                # Format for display - FIXED percentage handling
+                for metric in available_metrics:
+                    if metric in ['ROE', 'ROA', 'Net_Profit_Margin', 'Gross_Margin']:
+                        # Data is already in decimal format, display as percentage
+                        display_data[f"{metric} (%)"] = (display_data[metric] * 100).round(1)
+                        display_data = display_data.drop(columns=[metric])
+                    else:
+                        display_data[metric] = display_data[metric].round(2)
+                
+                # Display comparison table
+                st.dataframe(display_data.set_index('Company'), use_container_width=True)
+                
+                # Comparison charts
+                st.subheader("📈 Visual Comparison")
+                
+                chart_col1, chart_col2 = st.columns(2)
+                
+                with chart_col1:
+                    # ROE comparison
+                    if 'ROE' in comparison_data.columns:
+                        roe_data = comparison_data[['Company', 'ROE']].copy()
+                        fig_roe = px.bar(roe_data, x='Company', y='ROE',
+                                        title=f"ROE Comparison - {comp_year} {comp_period}",
+                                        color='ROE', color_continuous_scale='viridis')
+                        fig_roe.update_layout(yaxis_tickformat='.1%', showlegend=False)
+                        st.plotly_chart(fig_roe, use_container_width=True)
+                
+                with chart_col2:
+                    # Current Ratio comparison
+                    if 'Current_Ratio' in comparison_data.columns:
+                        cr_data = comparison_data[['Company', 'Current_Ratio']].copy()
+                        fig_cr = px.bar(cr_data, x='Company', y='Current_Ratio',
+                                       title=f"Liquidity Comparison - {comp_year} {comp_period}",
+                                       color='Current_Ratio', color_continuous_scale='plasma')
+                        fig_cr.update_layout(showlegend=False)
+                        st.plotly_chart(fig_cr, use_container_width=True)
+                
+                # Performance ranking
+                st.subheader("🏆 Performance Ranking")
+                
+                # Calculate overall scores for ranking
+                ranking_data = []
+                
+                for _, company_row in comparison_data.iterrows():
+                    company_dict = company_row.to_dict()
+                    results = enhanced_financial_ai.comprehensive_analysis(company_dict)
+                    
+                    ranking_data.append({
+                        'Company': company_row['Company'],
+                        'Overall Score': results['investment_score'],
+                        'Investment Rec': results['investment_recommendation'],
+                        'AI Confidence': f"{results['investment_confidence']:.0%}"
+                    })
+                
+                ranking_df = pd.DataFrame(ranking_data).sort_values('Overall Score', ascending=False)
+                
+                # Display ranking
+                rank_cols = st.columns(len(ranking_df))
+                
+                for i, (_, company_data) in enumerate(ranking_df.iterrows()):
+                    with rank_cols[i]:
+                        position = i + 1
+                        medal = "🥇" if position == 1 else "🥈" if position == 2 else "🥉"
+                        
+                        st.markdown(f"### {medal} {company_data['Company']}")
+                        st.metric("Score", f"{company_data['Overall Score']}/100")
+                        
+                        rec = company_data['Investment Rec']
+                        if rec in ["Strong Buy", "Buy"]:
+                            st.success(f"📈 {rec}")
+                        elif "Hold" in rec:
+                            st.warning(f"⚖️ {rec}")
+                        else:
+                            st.error(f"📉 {rec}")
+
+# ============================================================================
+# Footer with Enhanced Information
+# ============================================================================
+
+st.markdown("---")
+st.markdown("### 🤖 Financial AI Assistant Information")
+
+info_col1, info_col2, info_col3 = st.columns(3)
+
+with info_col1:
+    st.markdown("**📊 Data Coverage**")
+    if not df.empty:
+        st.write(f"• Period: {df['Year'].min()}-{df['Year'].max()}")
+        st.write(f"• Companies: {df['Company'].nunique()}")
+        st.write(f"• Records: {len(df)}")
     else:
-        st.warning("No data loaded. Cannot perform ratio prediction.")
+        st.write("• No data loaded")
 
-# --- Custom Financial Analysis --- (FIXED Input Handling)
-elif analysis_type == "Custom Financial Analysis":
-    st.markdown("<h2 class='sub-header'>⚙️ Custom Financial Analysis</h2>", unsafe_allow_html=True)
-    st.markdown("Input your own financial ratios for AI analysis (or fallback calculation).")
+with info_col2:
+    st.markdown("**🤖 AI Models**")
+    if ai_system['status'] == 'AI_MODELS_ACTIVE':
+        st.write(f"• Models: {ai_system['model_count']} AI models loaded")
+        st.write(f"• Prediction: ✅ Available")
+        st.write(f"• Classification: ✅ Available")
+    else:
+        st.write(f"• Models: Using mathematical fallbacks")
+        st.write(f"• Prediction: ⚠️ Fallback")
+        st.write(f"• Classification: ⚠️ Fallback")
 
-    if companies and years:
-        st.markdown("**Enter Financial Data**")
+with info_col3:
+    st.markdown("**📈 Capabilities**")
+    st.write("• ROE Prediction")
+    st.write("• Investment Recommendations")
+    st.write("• Financial Health Assessment")
+    st.write("• Company Comparison")
+    st.write("• Custom Analysis")
+
+# Model status expander
+with st.expander("🔧 Technical Details", expanded=False):
+    st.markdown("**AI System Status:**")
+    if ai_system['status'] == 'AI_MODELS_ACTIVE':
+        st.write("**Available AI Models:**")
+        for model in ai_system['available_models']:
+            st.write(f"• {model}: ✅ Loaded")
+        st.write(f"**Total Models**: {ai_system['model_count']}")
+    else:
+        st.write(f"**Status**: {ai_system['status']}")
+        st.write(f"**Error**: {ai_system.get('error', 'Unknown error')}")
+    
+    st.markdown("**Features:**")
+    st.write("• Real-time financial analysis")
+    st.write("• Machine learning predictions")
+    st.write("• Interactive visualizations")
+    st.write("• Historical trend analysis")
+    st.write("• Risk assessment")
+
+st.markdown("---")
+st.markdown("*Saudi Food Sector Financial AI Assistant | Powered by Advanced Machine Learning*"):
+            date_range = f"{df['Year'].min()}-{df['Year'].max()}"
+            st.metric("Data Period", date_range)
+        
+        with col3:
+            total_records = len(df)
+            st.metric("Financial Records", total_records)
+        
+        with col4:
+            avg_roe = df['ROE'].mean()
+            st.metric("Avg Sector ROE", f"{avg_roe:.1%}")
+        
+        # Latest performance summary
+        st.subheader("🏆 Latest Company Performance")
+        
+        # Get latest data for each company
+        latest_year = df['Year'].max()
+        latest_data = df[(df['Year'] == latest_year) & (df['Period_Type'] == 'Annual')]
+        
+        if not latest_data.empty:
+            # Create performance comparison
+            performance_cols = st.columns(len(latest_data))
+            
+            for i, (_, company_data) in enumerate(latest_data.iterrows()):
+                with performance_cols[i]:
+                    company = company_data['Company']
+                    roe = company_data['ROE']
+                    
+                    # Generate recommendation using enhanced AI
+                    recommendation_result = enhanced_financial_ai.comprehensive_analysis(company_data.to_dict())
+                    recommendation = recommendation_result['investment_recommendation']
+                    
+                    st.markdown(f"### {company}")
+                    st.metric("ROE", f"{roe:.1%}")
+                    
+                    # Color-coded recommendation
+                    if recommendation in ["Strong Buy", "Buy"]:
+                        st.success(f"📈 {recommendation}")
+                    elif "Hold" in recommendation:
+                        st.warning(f"⚖️ {recommendation}")
+                    else:
+                        st.error(f"📉 {recommendation}")
+        
+        # Sector trends chart
+        st.subheader("📈 Sector ROE Trends")
+        
+        # Create trend chart
+        annual_data = df[df['Period_Type'] == 'Annual'].groupby(['Year', 'Company'])['ROE'].mean().reset_index()
+        
+        if not annual_data.empty:
+            fig = px.line(
+                annual_data, 
+                x='Year', 
+                y='ROE', 
+                color='Company',
+                title="ROE Performance Over Time",
+                labels={'ROE': 'Return on Equity (%)', 'Year': 'Year'},
+                markers=True
+            )
+            fig.update_layout(yaxis_tickformat='.1%')
+            st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# Company Analysis Page - FIXED percentage display
+# ============================================================================
+
+elif page == "📊 Company Analysis":
+    st.header("📊 Individual Company Analysis")
+    st.markdown("*Deep dive into specific company performance*")
+    
+    if not df.empty:
+        # Company selection
+        available_companies = sorted(df['Company'].unique())
+        company = st.selectbox("Select Company:", available_companies)
+        
+        # Get available periods
+        company_data = df[df['Company'] == company]
+        available_years = sorted(company_data['Year'].unique(), reverse=True)
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            cust_company = st.text_input("Company Type (e.g., Almarai, Savola, NADEC, or Other):", value="Almarai", key="cust_comp")
-            cust_year = st.number_input("Year:", min_value=2010, max_value=datetime.now().year + 5, value=datetime.now().year, key="cust_year")
-            cust_period = st.selectbox("Period:", ["Annual", "Quarterly"], key="cust_period")
-            
-            st.markdown("**Profitability Ratios (%)**")
-            # FIXED: Input as percentage (0-100), will be converted later
-            cust_gross_margin = st.slider("Gross Margin (%):", 0, 100, 38, key="cust_gm")
-            cust_npm = st.slider("Net Profit Margin (%):", -50, 100, 10, key="cust_npm") # Allow negative NPM
-            cust_roa = st.slider("Return on Assets (ROA %):", -50, 50, 8, key="cust_roa")
-
+            year = st.selectbox("Select Year:", available_years)
+        
         with col2:
-            st.markdown("**Financial Health Ratios**")
-            cust_current_ratio = st.slider("Current Ratio:", 0.0, 5.0, 1.5, step=0.01, key="cust_cr")
-            cust_debt_equity = st.slider("Debt-to-Equity:", 0.0, 5.0, 0.8, step=0.01, key="cust_de")
-            cust_debt_assets = st.slider("Debt-to-Assets (%):", 0, 100, 45, key="cust_da")
+            # Check available period types for the year
+            year_data = company_data[company_data['Year'] == year]
+            available_periods = []
             
-            st.markdown("**Optional**")
-            cust_roe_input_type = st.radio("Provide ROE?", ["Manual ROE (%)", "Use AI/Fallback to Predict ROE"], key="cust_roe_type")
-            cust_roe = None
-            if cust_roe_input_type == "Manual ROE (%)":
-                cust_roe = st.slider("Manual ROE (%):", -50, 100, 12, key="cust_roe_manual")
-
-        if st.button("📈 Analyze Custom Data"):
-            st.subheader(f"Custom Analysis Results for {cust_company} - {cust_year} {cust_period}")
+            if not year_data[year_data['Period_Type'] == 'Annual'].empty:
+                available_periods.append("Annual")
             
-            # Prepare input dictionary
-            custom_input = {
-                'Company': cust_company,
-                'Year': cust_year,
-                'Period_Type': cust_period,
-                # FIXED: Pass slider values directly, conversion happens inside predictor/handler
-                'Gross_Margin': cust_gross_margin,
-                'Net_Profit_Margin': cust_npm,
-                'ROA': cust_roa,
-                'Current_Ratio': cust_current_ratio,
-                'Debt_to_Equity': cust_debt_equity,
-                'Debt_to_Assets': cust_debt_assets,
-                # Pass ROE only if manually provided
-                'ROE': cust_roe if cust_roe is not None else np.nan # Use NaN if not provided
-            }
-
-            # Use the predictor/fallback mechanism
-            # The predict_all_ratios method inside ComprehensiveRatioPredictor handles conversion and prediction
-            if ai_system_info['status'] == 'AI_MODELS_ACTIVE' and financial_ai.predictor:
-                st.info("Using AI Model for analysis...")
-                try:
-                    predictions, analyzed_data = financial_ai.predictor.predict_all_ratios(custom_input)
-                    
-                    st.markdown("**Analyzed / Predicted Ratios:**")
-                    # Display the results (original + predicted)
-                    disp_ratios = ['roe', 'roa', 'net_profit_margin', 'gross_margin', 'current_ratio', 'debt_to_equity', 'debt_to_assets']
-                    results_disp = {}
-                    for r in disp_ratios:
-                        val = analyzed_data.get(r)
-                        is_predicted = r in predictions
-                        conf = predictions[r]['confidence'] if is_predicted else 'N/A'
-                        val_str = f"{val:.2%}" if pd.notna(val) and r in percentage_columns else (f"{val:.2f}" if pd.notna(val) else "N/A")
-                        results_disp[r.replace('_',' ').title()] = f"{val_str} {'(Predicted - ' + conf + ')' if is_predicted else '(Input)'}"
-                    st.json(results_disp)
-                    
-                    # Generate recommendation based on the analyzed data
-                    rec, rec_style, _ = financial_ai.generate_recommendation(cust_company, cust_year, cust_period) # This might need adjustment if generate_recommendation relies on historical data not present here
-                    st.markdown(f"**Recommendation:** <span class='{rec_style}' style='padding: 5px; border-radius: 5px;'>{rec}</span>", unsafe_allow_html=True)
-
-                except Exception as e:
-                    st.error(f"Error during custom AI analysis: {e}")
-                    st.warning("Falling back to basic display of input data.")
-                    st.json({k: v for k, v in custom_input.items() if k not in ['Company', 'Year', 'Period_Type']})
+            quarterly_data = year_data[year_data['Period_Type'] == 'Quarterly']
+            for q in sorted(quarterly_data['Quarter'].unique()):
+                if q > 0:
+                    available_periods.append(f"Q{int(q)}")
+            
+            if available_periods:
+                period = st.selectbox("Select Period:", available_periods)
             else:
-                st.warning("AI Model not active. Displaying input data only. Fallback calculations for custom input are limited.")
-                # Just display the input data as fallback for custom analysis is complex
-                st.json({k: v for k, v in custom_input.items() if k not in ['Company', 'Year', 'Period_Type']})
-    else:
-        st.warning("No data loaded. Cannot perform custom analysis.")
-
-# ============================================================================
-# Footer / Additional Info
-# ============================================================================
-st.markdown("---")
-st.markdown("<h3 class='sub-header'>ℹ️ Financial AI Assistant Information</h3>", unsafe_allow_html=True)
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown("**Data Coverage**")
-    if not financial_data_df.empty:
-        min_year, max_year = financial_data_df['year'].min(), financial_data_df['year'].max()
-        st.write(f"- Period: {min_year}-{max_year}")
-        st.write(f"- Companies: {len(companies)}")
-        st.write(f"- Records: {len(financial_data_df)}")
-    else:
-        st.write("- Data not loaded.")
-with col2:
-    st.markdown("**AI Models**")
-    st.write(f"- Status: {ai_system_info['status'].replace('_', ' ')}")
-    if ai_system_info['status'] == 'AI_MODELS_ACTIVE':
-        st.write(f"- Models Loaded: {ai_system_info['model_count']}")
-        # st.write(f"- Available Ratios: {', '.join(ai_system_info['models'])}")
-    else:
-        st.write(f"- Reason: {ai_system_info['message']}")
-with col3:
-    st.markdown("**Capabilities**")
-    st.write("- ROE Prediction")
-    st.write("- Investment Recommendations")
-    st.write("- Company Comparison")
-    st.write("- Financial Health Assessment")
-    st.write("- Custom Analysis")
-
-with st.expander("Technical Details"):
-    st.write("This application uses machine learning models (potentially XGBoost, Scikit-learn) trained on historical financial data to provide insights and predictions. When AI models fail to load or during prediction errors, it falls back to basic mathematical calculations or historical data retrieval.")
-    st.write("Data Cleaning involves standardizing column names, handling mixed percentage/decimal formats, and converting data types.")
-    st.write("Prediction confidence (High, Medium, Low) is estimated based on the availability of required input features for the AI model.")
-
-st.markdown("<hr style='margin-top: 2rem;'>", unsafe_allow_html=True)
-st.caption("Saudi Food Sector Financial AI Assistant | Powered by Advanced Machine Learning")
-
+                st.error(f"No data available for {company} in {year}")
+                st.stop()
+        
+        # Get selected data
+        if period == "Annual":
+            selected_data = year_data[year_data['Period_Type'] == 'Annual'].iloc[0]
+        else:
+            quarter_num = int(period[1])
+            selected_data = year_data[year_data['Quarter'] == quarter_num].iloc[0]
+        
+        # Display analysis
+        st.subheader(f"📈 {company} - {year} {period}")
+        
+        # FIXED: Financial metrics display with correct percentage formatting
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("#### 💰 Profitability")
+            if pd.notna(selected_data.get('ROE')):
+                st.metric("ROE", f"{selected_data['ROE']:.1%}")
+            if pd.notna(selected_data.get('ROA')):
+                st.metric("ROA", f"{selected_data['ROA']:.1%}")
+            if pd.notna(selected_data.get('Net_Profit_Margin')):
+                st.metric("Net Profit Margin", f"{selected_data['Net_Profit_Margin']:.1%}")
+        
+        with col2
