@@ -17,11 +17,11 @@ st.set_page_config(
 )
 
 # ============================================================================
-# CRITICAL: Define ComprehensiveRatiPredictor class for pickle loading
+# FIXED: ComprehensiveRatiPredictor class with correct calculation logic
 # ============================================================================
 
 class ComprehensiveRatiPredictor:
-    """Predicts all financial ratios using trained models"""
+    """Predicts all financial ratios using trained models - FIXED VERSION"""
 
     def __init__(self, models_dict, company_encoder=None):
         self.models = models_dict
@@ -29,7 +29,7 @@ class ComprehensiveRatiPredictor:
         self.available_ratios = list(models_dict.keys()) if models_dict else []
 
     def predict_all_ratios(self, input_data, prediction_method='iterative'):
-        """Predict all financial ratios from partial input"""
+        """Predict all financial ratios from partial input - FIXED LOGIC"""
         results = {}
         input_copy = input_data.copy()
 
@@ -39,24 +39,28 @@ class ComprehensiveRatiPredictor:
                 if hasattr(self.le_company, 'classes_') and input_copy['Company'] in self.le_company.classes_:
                     input_copy['Company_Encoded'] = self.le_company.transform([input_copy['Company']])[0]
                 else:
-                    input_copy['Company_Encoded'] = 0  # Default encoding
+                    input_copy['Company_Encoded'] = 0
             except:
                 input_copy['Company_Encoded'] = 0
 
-        # Clean input values - FIXED LOGIC HERE
+        # FIXED: Clean input values with correct percentage handling
+        percentage_columns = ['Gross_Margin', 'Net_Profit_Margin', 'ROA', 'ROE', 'Debt_to_Assets']
+        
         for key, value in input_copy.items():
-            if isinstance(value, str) and key in self.available_ratios:
+            if isinstance(value, str) and key in percentage_columns:
                 try:
                     cleaned_value = str(value).replace('%', '').replace(',', '').strip()
-                    input_copy[key] = float(cleaned_value)
+                    numeric_value = float(cleaned_value)
                     
-                    # FIXED: Only convert if value is greater than 1 (meaning it's in percentage form)
-                    if key in ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets'] and input_copy[key] > 1:
-                        input_copy[key] = input_copy[key] / 100
+                    # FIXED: Smart conversion - only if value > 1 (meaning percentage form like 8.9)
+                    if numeric_value > 1:
+                        input_copy[key] = numeric_value / 100  # Convert 8.9 to 0.089
+                    else:
+                        input_copy[key] = numeric_value        # Keep 0.089 as 0.089
                 except:
                     input_copy[key] = np.nan
 
-        # Iterative prediction approach
+        # Iterative prediction approach (unchanged)
         if prediction_method == 'iterative' and self.models:
             for iteration in range(3):
                 for ratio in self.available_ratios:
@@ -67,21 +71,18 @@ class ComprehensiveRatiPredictor:
                                 model = model_info['model']
                                 features = model_info.get('features', [])
 
-                                # Check available features
                                 available_features = [f for f in features
                                                     if f in input_copy and not pd.isna(input_copy.get(f))]
 
                                 if len(available_features) >= len(features) * 0.5:
                                     try:
-                                        # Create feature vector
                                         feature_values = []
                                         for feature in features:
                                             if feature in input_copy and not pd.isna(input_copy.get(feature)):
                                                 feature_values.append(input_copy[feature])
                                             else:
-                                                feature_values.append(0)  # Fallback
+                                                feature_values.append(0)
 
-                                        # Make prediction
                                         if hasattr(model, 'predict'):
                                             prediction = model.predict([feature_values])[0]
                                             input_copy[ratio] = prediction
@@ -93,7 +94,7 @@ class ComprehensiveRatiPredictor:
                                                 'iteration': iteration + 1
                                             }
                                     except Exception as e:
-                                        pass  # Skip failed predictions
+                                        pass
 
         return results, input_copy
 
@@ -146,16 +147,13 @@ st.markdown("*Analyze Almarai, Savola, and NADEC with AI-powered insights*")
 def load_comprehensive_ai_system():
     """Load the comprehensive AI system from Colab with enhanced error handling"""
     try:
-        # Try to load the main comprehensive predictor
         comprehensive_predictor = joblib.load('comprehensive_ratio_predictor.pkl')
         
-        # Try to load company encoder
         try:
             company_encoder = joblib.load('company_encoder.pkl')
         except:
             company_encoder = None
         
-        # Check if the system has models
         if hasattr(comprehensive_predictor, 'models') and comprehensive_predictor.models:
             available_models = list(comprehensive_predictor.models.keys())
             
@@ -170,16 +168,15 @@ def load_comprehensive_ai_system():
             return {'status': 'FALLBACK_MODE', 'error': 'No models found in predictor'}
             
     except Exception as e:
-        # Try to load individual model files as backup
         try:
             individual_models = {}
             model_files = [
                 ('model_roe.pkl', 'ROE'),
                 ('model_roa.pkl', 'ROA'),
-                ('model_net_profit_margin.pkl', 'Net Profit Margin'),
-                ('model_gross_margin.pkl', 'Gross Margin'),
-                ('model_debt_to_equity.pkl', 'Debt-to-Equity'),
-                ('model_debt_to_assets.pkl', 'Debt-to-Assets')
+                ('model_net_profit_margin.pkl', 'Net_Profit_Margin'),
+                ('model_gross_margin.pkl', 'Gross_Margin'),
+                ('model_debt_to_equity.pkl', 'Debt_to_Equity'),
+                ('model_debt_to_assets.pkl', 'Debt_to_Assets')
             ]
             
             for model_file, ratio_name in model_files:
@@ -190,7 +187,6 @@ def load_comprehensive_ai_system():
                     continue
             
             if individual_models:
-                # Create a simple predictor with individual models
                 predictor = ComprehensiveRatiPredictor(individual_models, None)
                 
                 return {
@@ -209,12 +205,14 @@ def load_comprehensive_ai_system():
             'error': f'Model loading failed: {str(e)[:100]}'
         }
 
-# Load financial data with multiple fallback options
+# ============================================================================
+# FIXED: Data loading and cleaning functions
+# ============================================================================
+
 @st.cache_data
 def load_financial_data():
-    """Load and prepare financial data with comprehensive cleaning"""
+    """Load and prepare financial data with FIXED cleaning"""
     try:
-        # Try multiple possible filenames
         possible_filenames = [
             'Savola Almarai NADEC Financial Ratios CSV.csv.csv',
             'Savola Almarai NADEC Financial Ratios CSV.csv', 
@@ -228,7 +226,6 @@ def load_financial_data():
         
         for filename in possible_filenames:
             try:
-                # Load CSV with minimal processing first
                 df = pd.read_csv(filename)
                 loaded_filename = filename
                 break
@@ -236,13 +233,12 @@ def load_financial_data():
                 continue
         
         if df is None:
-            # Create sample data if no file found
             st.warning("⚠️ CSV file not found. Using sample data for demonstration.")
             return create_sample_data()
         
         st.success(f"✅ Data loaded from: {loaded_filename}")
         
-        # Clean the data
+        # Clean the data with FIXED logic
         df = clean_financial_data(df)
         
         return df
@@ -252,23 +248,28 @@ def load_financial_data():
         return create_sample_data()
 
 def clean_financial_data(df):
-    """Clean financial data - keep percentages as original values (30.9 not 0.309)"""
+    """FIXED: Clean financial data with consistent decimal format"""
     # Clean column names
     df.columns = df.columns.str.strip()
     
-    # Clean all numeric columns - JUST CLEAN, DON'T CONVERT PERCENTAGES
-    all_numeric_columns = ['Gross Margin', 'Net Profit Margin', 'ROA', 'ROE', 'Debt-to-Assets', 'Current Ratio', 'Debt-to-Equity']
+    # FIXED: Define column types clearly
+    percentage_columns = ['Gross_Margin', 'Net_Profit_Margin', 'ROA', 'ROE', 'Debt_to_Assets']
+    ratio_columns = ['Current_Ratio', 'Debt_to_Equity']
     
-    for col in all_numeric_columns:
+    # FIXED: Clean percentage columns (store as decimals)
+    for col in percentage_columns:
         if col in df.columns:
-            # Clean strings (remove % signs, commas, spaces)
+            # Clean string values
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '').str.strip()
             
-            # Convert to numeric - THAT'S IT, NO DIVISION BY 100
+            # Convert to numeric
             df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # FIXED: Smart conversion - only if value > 1 (percentage form)
+            df[col] = df[col].apply(lambda x: x/100 if pd.notna(x) and x > 1 else x)
     
-    # Clean ratio columns (these stay as ratios, not percentages)
+    # Clean ratio columns (keep as numbers)
     for col in ratio_columns:
         if col in df.columns:
             if df[col].dtype == 'object':
@@ -290,7 +291,7 @@ def clean_financial_data(df):
     # Fill missing values with median for each company
     for company in df['Company'].unique():
         company_mask = df['Company'] == company
-        for col in all_numeric_columns:
+        for col in percentage_columns + ratio_columns:
             if col in df.columns:
                 company_median = df.loc[company_mask, col].median()
                 if not pd.isna(company_median):
@@ -299,26 +300,41 @@ def clean_financial_data(df):
     return df
 
 def create_sample_data():
-    """Create sample data for demonstration purposes - NO decimal conversion"""
+    """FIXED: Create sample data with consistent decimal format"""
     companies = ['Almarai', 'Savola', 'NADEC']
     years = [2020, 2021, 2022, 2023]
     quarters = [1, 2, 3, 4]
     
     data = []
     
-    # Base financial ratios for each company - KEEP AS ORIGINAL PERCENTAGES (not decimals)
+    # FIXED: Base ratios stored as decimals (0.115 = 11.5%)
     base_ratios = {
         'Almarai': {
-            'Gross Margin': 30.9, 'Net Profit Margin': 10.5, 'ROA': 5.7, 'ROE': 11.5,
-            'Current Ratio': 1.40, 'Debt-to-Equity': 1.03, 'Debt-to-Assets': 51.0
+            'Gross_Margin': 0.309,      # 30.9%
+            'Net_Profit_Margin': 0.105, # 10.5%
+            'ROA': 0.057,               # 5.7%
+            'ROE': 0.115,               # 11.5%
+            'Current_Ratio': 1.40,      # Ratio
+            'Debt_to_Equity': 1.03,     # Ratio
+            'Debt_to_Assets': 0.51      # 51%
         },
         'Savola': {
-            'Gross Margin': 20.3, 'Net Profit Margin': 4.5, 'ROA': 4.0, 'ROE': 12.6,
-            'Current Ratio': 0.84, 'Debt-to-Equity': 2.14, 'Debt-to-Assets': 68.0
+            'Gross_Margin': 0.203,      # 20.3%
+            'Net_Profit_Margin': 0.045, # 4.5%
+            'ROA': 0.040,               # 4.0%
+            'ROE': 0.126,               # 12.6%
+            'Current_Ratio': 0.84,      # Ratio
+            'Debt_to_Equity': 2.14,     # Ratio
+            'Debt_to_Assets': 0.68      # 68%
         },
         'NADEC': {
-            'Gross Margin': 37.0, 'Net Profit Margin': 9.4, 'ROA': 5.9, 'ROE': 8.4,
-            'Current Ratio': 1.96, 'Debt-to-Equity': 0.42, 'Debt-to-Assets': 30.0
+            'Gross_Margin': 0.370,      # 37.0%
+            'Net_Profit_Margin': 0.094, # 9.4%
+            'ROA': 0.059,               # 5.9%
+            'ROE': 0.084,               # 8.4%
+            'Current_Ratio': 1.96,      # Ratio
+            'Debt_to_Equity': 0.42,     # Ratio
+            'Debt_to_Assets': 0.30      # 30%
         }
     }
     
@@ -358,7 +374,7 @@ def create_sample_data():
     return pd.DataFrame(data)
 
 # ============================================================================
-# FIXED: Enhanced Financial AI Class with correct percentage handling
+# FIXED: Enhanced Financial AI Class with correct calculation logic
 # ============================================================================
 
 class EnhancedFinancialAI:
@@ -374,20 +390,16 @@ class EnhancedFinancialAI:
             self.company_encoder = None
     
     def comprehensive_analysis(self, company_data):
-        """Perform comprehensive analysis using AI or fallbacks"""
+        """Perform comprehensive analysis using AI or fallbacks - FIXED"""
         
         if self.status == 'AI_MODELS_ACTIVE' and self.comprehensive_predictor:
             try:
-                # Use the comprehensive AI system from Colab
                 predictions, complete_data = self.comprehensive_predictor.predict_all_ratios(
                     company_data, 
                     prediction_method='iterative'
                 )
                 
-                # Extract predicted ROE
                 predicted_roe = predictions.get('ROE', {}).get('predicted_value', company_data.get('ROA', 0.05) * 1.5)
-                
-                # Create investment recommendation based on AI predictions
                 investment_score = self._calculate_ai_investment_score(complete_data, predictions)
                 
                 if investment_score >= 70:
@@ -399,7 +411,6 @@ class EnhancedFinancialAI:
                 else:
                     investment_rec, confidence = "Sell", 0.55
                 
-                # Determine company status
                 company_status = self._get_ai_company_status(complete_data)
                 
                 return {
@@ -419,28 +430,26 @@ class EnhancedFinancialAI:
             return self._fallback_analysis(company_data)
     
     def _calculate_ai_investment_score(self, complete_data, predictions):
-        """Calculate investment score using AI predictions - keep original logic"""
+        """FIXED: Calculate investment score using correct decimal thresholds"""
         score = 0
         
-        # Use predicted ROE - keep original decimal logic
+        # FIXED: Use decimal thresholds (0.15 = 15%)
         roe = predictions.get('ROE', {}).get('predicted_value', complete_data.get('ROE', 0))
-        if roe > 0.15: score += 30
-        elif roe > 0.10: score += 20
-        elif roe > 0.05: score += 10
+        if roe > 0.15: score += 30      # 15%
+        elif roe > 0.10: score += 20    # 10%
+        elif roe > 0.05: score += 10    # 5%
         
-        # Use predicted ROA - keep original decimal logic
         roa = predictions.get('ROA', {}).get('predicted_value', complete_data.get('ROA', 0))
-        if roa > 0.08: score += 25
-        elif roa > 0.05: score += 15
-        elif roa > 0.02: score += 5
+        if roa > 0.08: score += 25      # 8%
+        elif roa > 0.05: score += 15    # 5%
+        elif roa > 0.02: score += 5     # 2%
         
-        # Use predicted Net Profit Margin - keep original decimal logic
-        npm = predictions.get('Net Profit Margin', {}).get('predicted_value', complete_data.get('Net Profit Margin', 0))
-        if npm > 0.10: score += 20
-        elif npm > 0.05: score += 10
+        npm = predictions.get('Net_Profit_Margin', {}).get('predicted_value', complete_data.get('Net_Profit_Margin', 0))
+        if npm > 0.10: score += 20      # 10%
+        elif npm > 0.05: score += 10    # 5%
         
         # Debt ratios (these stay as ratios)
-        debt_equity = predictions.get('Debt-to-Equity', {}).get('predicted_value', complete_data.get('Debt-to-Equity', 1))
+        debt_equity = predictions.get('Debt_to_Equity', {}).get('predicted_value', complete_data.get('Debt_to_Equity', 1))
         if debt_equity < 0.5: score += 15
         elif debt_equity < 1.0: score += 10
         elif debt_equity < 1.5: score += 5
@@ -448,24 +457,24 @@ class EnhancedFinancialAI:
         return min(100, score)
     
     def _get_ai_company_status(self, complete_data):
-        """Determine company status using AI predictions"""
+        """FIXED: Determine company status using decimal thresholds"""
         roe = complete_data.get('ROE', 0)
-        npm = complete_data.get('Net Profit Margin', 0)
+        npm = complete_data.get('Net_Profit_Margin', 0)
         
-        if roe > 0.15 and npm > 0.15:
+        if roe > 0.15 and npm > 0.15:      # 15%
             return 'Excellent'
-        elif roe > 0.10 and npm > 0.10:
+        elif roe > 0.10 and npm > 0.10:    # 10%
             return 'Good'
-        elif roe > 0.05 and npm > 0.05:
+        elif roe > 0.05 and npm > 0.05:    # 5%
             return 'Average'
         else:
             return 'Poor'
     
     def _fallback_analysis(self, company_data):
-        """Fallback to mathematical calculations - keep original logic"""
-        roa = company_data.get('ROA', 0.05)  # Keep original defaults
-        npm = company_data.get('Net Profit Margin', 0.08)  # Keep original defaults
-        equity_multiplier = 1 + company_data.get('Debt-to-Equity', 0.8)
+        """FIXED: Fallback to mathematical calculations with decimal logic"""
+        roa = company_data.get('ROA', 0.05)
+        npm = company_data.get('Net_Profit_Margin', 0.08)
+        equity_multiplier = 1 + company_data.get('Debt_to_Equity', 0.8)
         
         predicted_roe = roa * equity_multiplier
         investment_score = self._calculate_fallback_score(company_data)
@@ -487,24 +496,44 @@ class EnhancedFinancialAI:
         }
     
     def _calculate_fallback_score(self, data):
-        """Calculate fallback investment score - keep original logic"""
+        """FIXED: Calculate fallback investment score with decimal thresholds"""
         score = 0
-        roe = data.get('ROE', data.get('ROA', 0.05) * 1.5)  # Keep original logic
+        roe = data.get('ROE', data.get('ROA', 0.05) * 1.5)
         
-        # Keep original decimal thresholds
-        if roe > 0.15: score += 35
-        elif roe > 0.10: score += 25
-        elif roe > 0.05: score += 15
+        # FIXED: Use decimal thresholds
+        if roe > 0.15: score += 35       # 15%
+        elif roe > 0.10: score += 25     # 10%
+        elif roe > 0.05: score += 15     # 5%
         
-        roa = data.get('ROA', 0.05)  # Keep original defaults
-        if roa > 0.08: score += 25
-        elif roa > 0.05: score += 15
+        roa = data.get('ROA', 0.05)
+        if roa > 0.08: score += 25       # 8%
+        elif roa > 0.05: score += 15     # 5%
         
-        npm = data.get('Net Profit Margin', 0.08)  # Keep original defaults
-        if npm > 0.10: score += 20
-        elif npm > 0.05: score += 10
+        npm = data.get('Net_Profit_Margin', 0.08)
+        if npm > 0.10: score += 20       # 10%
+        elif npm > 0.05: score += 10     # 5%
         
         return min(100, score)
+
+# ============================================================================
+# FIXED: Utility functions for consistent display
+# ============================================================================
+
+def display_percentage_metric(label, value, help_text=None):
+    """FIXED: Display percentage metrics consistently"""
+    if pd.isna(value):
+        st.metric(label, "N/A", help=help_text)
+    else:
+        # Value is in decimal format (0.089), display as percentage
+        st.metric(label, f"{value:.1%}", help=help_text)
+
+def display_ratio_metric(label, value, help_text=None):
+    """Display ratio metrics consistently"""
+    if pd.isna(value):
+        st.metric(label, "N/A", help=help_text)
+    else:
+        # Value is already a ratio, display as number
+        st.metric(label, f"{value:.2f}", help=help_text)
 
 # ============================================================================
 # Load Data and Initialize AI System
@@ -519,7 +548,6 @@ enhanced_financial_ai = EnhancedFinancialAI(ai_system)
 # Sidebar Navigation and AI Status
 # ============================================================================
 
-# Sidebar for navigation and AI status
 st.sidebar.title("🎯 Navigation")
 
 # AI System Status Display
@@ -531,7 +559,6 @@ if ai_system['status'] == 'AI_MODELS_ACTIVE':
     st.sidebar.write(f"✅ Available Models: {ai_system['model_count']}")
     st.sidebar.write(f"✅ Company Encoder: {'Ready' if ai_system['company_encoder'] else 'Fallback'}")
     
-    # Show available AI capabilities
     with st.sidebar.expander("🔍 AI Model Details", expanded=False):
         st.write("**Available AI Models:**")
         for model in ai_system['available_models']:
@@ -553,7 +580,7 @@ page = st.sidebar.selectbox(
 )
 
 # ============================================================================
-# Dashboard Page
+# FIXED: Dashboard Page
 # ============================================================================
 
 if page == "🏠 Dashboard":
@@ -578,7 +605,8 @@ if page == "🏠 Dashboard":
         
         with col4:
             avg_roe = df['ROE'].mean()
-            st.metric("Avg Sector ROE", f"{avg_roe:.1%}")  # FIXED: Display as percentage
+            # FIXED: Display as percentage
+            display_percentage_metric("Avg Sector ROE", avg_roe)
         
         # Latest performance summary
         st.subheader("🏆 Latest Company Performance")
@@ -601,7 +629,8 @@ if page == "🏠 Dashboard":
                     recommendation = recommendation_result['investment_recommendation']
                     
                     st.markdown(f"### {company}")
-                    st.metric("ROE", f"{roe:.1%}")  # FIXED: Display as percentage
+                    # FIXED: Display ROE as percentage
+                    display_percentage_metric("ROE", roe)
                     
                     # Color-coded recommendation
                     if recommendation in ["Strong Buy", "Buy"]:
@@ -627,11 +656,12 @@ if page == "🏠 Dashboard":
                 labels={'ROE': 'Return on Equity (%)', 'Year': 'Year'},
                 markers=True
             )
-            fig.update_layout(yaxis_tickformat='.1%')  # FIXED: Display as percentage
+            # FIXED: Display Y-axis as percentage
+            fig.update_layout(yaxis_tickformat='.1%')
             st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
-# Company Analysis Page - FIXED percentage display
+# FIXED: Company Analysis Page
 # ============================================================================
 
 elif page == "📊 Company Analysis":
@@ -681,37 +711,24 @@ elif page == "📊 Company Analysis":
         # Display analysis
         st.subheader(f"📈 {company} - {year} {period}")
         
-        # FIXED: Financial metrics display with correct percentage formatting
+        # FIXED: Financial metrics display with correct formatting
         col1, col2, col3 = st.columns(3)
         
         with col1:
             st.markdown("#### 💰 Profitability")
-            if pd.notna(selected_data.get('ROE')):
-                st.metric("ROE", f"{selected_data['ROE']:.1%}")  # Keep original percentage format
-            if pd.notna(selected_data.get('ROA')):
-                st.metric("ROA", f"{selected_data['ROA']:.1%}")  # Keep original percentage format
-            if pd.notna(selected_data.get('Net Profit Margin')):
-                st.metric("Net Profit Margin", f"{selected_data['Net Profit Margin']:.1%}")  # Keep original percentage format
+            display_percentage_metric("ROE", selected_data.get('ROE'), "Return on Equity")
+            display_percentage_metric("ROA", selected_data.get('ROA'), "Return on Assets")
+            display_percentage_metric("Net Profit Margin", selected_data.get('Net_Profit_Margin'), "Net Profit Margin")
         
         with col2:
             st.markdown("#### ⚖️ Financial Health")
-            if pd.notna(selected_data.get('Current Ratio')):
-                st.metric("Current Ratio", f"{selected_data['Current Ratio']:.2f}")  # This stays as ratio
-            if pd.notna(selected_data.get('Debt-to-Equity')):
-                st.metric("Debt-to-Equity", f"{selected_data['Debt-to-Equity']:.2f}")  # This stays as ratio
+            display_ratio_metric("Current Ratio", selected_data.get('Current_Ratio'), "Liquidity measure")
+            display_ratio_metric("Debt-to-Equity", selected_data.get('Debt_to_Equity'), "Leverage ratio")
         
         with col3:
             st.markdown("#### 📊 Efficiency")
-            if pd.notna(selected_data.get('Gross Margin')):
-                raw_value = selected_data['Gross Margin']
-                # Debug: Check if value is very small (like 0.003 instead of 30.3)
-                if raw_value < 1:
-                    display_value = raw_value * 100  # Convert 0.309 to 30.9%
-                else:
-                    display_value = raw_value  # Already in percentage format like 30.9
-                st.metric("Gross Margin", f"{display_value:.1f}%")
-            if pd.notna(selected_data.get('Debt-to-Assets')):
-                st.metric("Debt-to-Assets", f"{selected_data['Debt-to-Assets']:.1%}")  # Keep original percentage format
+            display_percentage_metric("Gross Margin", selected_data.get('Gross_Margin'), "Gross profit efficiency")
+            display_percentage_metric("Debt-to-Assets", selected_data.get('Debt_to_Assets'), "Asset financing structure")
         
         # AI Analysis Button
         if st.button("🤖 Generate AI Analysis", type="primary", key="company_analysis"):
@@ -732,7 +749,7 @@ elif page == "📊 Company Analysis":
                 col_a, col_b, col_c = st.columns(3)
                 
                 with col_a:
-                    st.metric("AI Predicted ROE", f"{results['predicted_roe']:.1%}")  # Keep original percentage format
+                    display_percentage_metric("AI Predicted ROE", results['predicted_roe'])
                 
                 with col_b:
                     rec = results['investment_recommendation']
@@ -768,7 +785,7 @@ elif page == "📊 Company Analysis":
                         st.error(f"⚠️ Company Status: {status}")
 
 # ============================================================================
-# Custom Analysis Page - FIXED percentage display
+# FIXED: Custom Analysis Page
 # ============================================================================
 
 elif page == "🎯 Custom Analysis":
@@ -787,7 +804,7 @@ elif page == "🎯 Custom Analysis":
         custom_quarter = st.selectbox("Period:", ["Annual", "Q1", "Q2", "Q3", "Q4"])
         
         st.markdown("#### Profitability Ratios")
-        # FIXED: Input as percentage but convert to decimal for calculations
+        # FIXED: Input as percentage but store as decimal for calculations
         gross_margin = st.slider("Gross Margin (%)", 0, 100, 30) / 100
         net_profit_margin = st.slider("Net Profit Margin (%)", 0, 50, 10) / 100
         roa = st.slider("Return on Assets (%)", 0, 30, 8) / 100
@@ -796,10 +813,10 @@ elif page == "🎯 Custom Analysis":
         st.markdown("#### Financial Health Ratios")
         current_ratio = st.slider("Current Ratio", 0.0, 5.0, 1.5, 0.1)
         debt_to_equity = st.slider("Debt-to-Equity", 0.0, 5.0, 0.8, 0.1)
-        debt_to_assets = st.slider("Debt-to-Assets (%)", 0, 100, 45) / 100  # FIXED: Convert to decimal
+        debt_to_assets = st.slider("Debt-to-Assets (%)", 0, 100, 45) / 100
         
         st.markdown("#### Optional")
-        manual_roe = st.slider("Manual ROE (%) - Optional", 0, 50, 12) / 100  # FIXED: Convert to decimal
+        manual_roe = st.slider("Manual ROE (%) - Optional", 0, 50, 12) / 100
         use_manual_roe = st.checkbox("Use Manual ROE (skip AI prediction)")
     
     # Analysis button
@@ -809,17 +826,17 @@ elif page == "🎯 Custom Analysis":
             'Company': custom_company,
             'Year': custom_year,
             'Quarter': 0 if custom_quarter == "Annual" else int(custom_quarter[1]),
-            'Gross Margin': gross_margin,  # Already in decimal format
-            'Net Profit Margin': net_profit_margin,  # Already in decimal format
-            'ROA': roa,  # Already in decimal format
-            'Current Ratio': current_ratio,
-            'Debt-to-Equity': debt_to_equity,
-            'Debt-to-Assets': debt_to_assets  # Already in decimal format
+            'Gross_Margin': gross_margin,
+            'Net_Profit_Margin': net_profit_margin,
+            'ROA': roa,
+            'Current_Ratio': current_ratio,
+            'Debt_to_Equity': debt_to_equity,
+            'Debt_to_Assets': debt_to_assets
         }
         
         # Add manual ROE if specified
         if use_manual_roe:
-            custom_data['ROE'] = manual_roe  # Already in decimal format
+            custom_data['ROE'] = manual_roe
         
         with st.spinner("🤖 AI is analyzing your data..."):
             # Get AI analysis
@@ -839,7 +856,7 @@ elif page == "🎯 Custom Analysis":
             
             with result_col1:
                 roe_display = manual_roe if use_manual_roe else results['predicted_roe']
-                st.metric("ROE", f"{roe_display:.1%}", help="Return on Equity")  # Keep original percentage format
+                display_percentage_metric("ROE", roe_display, "Return on Equity")
             
             with result_col2:
                 rec = results['investment_recommendation']
@@ -861,9 +878,9 @@ elif page == "🎯 Custom Analysis":
                 st.markdown("**✅ Strengths:**")
                 strengths = []
                 if roa > 0.08:
-                    strengths.append(f"Strong ROA ({roa:.1%})")  # Keep original percentage format
+                    strengths.append(f"Strong ROA ({roa:.1%})")
                 if net_profit_margin > 0.10:
-                    strengths.append(f"Good profitability ({net_profit_margin:.1%})")  # Keep original percentage format
+                    strengths.append(f"Good profitability ({net_profit_margin:.1%})")
                 if current_ratio > 1.5:
                     strengths.append(f"Strong liquidity ({current_ratio:.2f})")
                 if debt_to_equity < 0.8:
@@ -879,9 +896,9 @@ elif page == "🎯 Custom Analysis":
                 st.markdown("**⚠️ Areas for Improvement:**")
                 concerns = []
                 if roa < 0.05:
-                    concerns.append(f"Low ROA ({roa:.1%}) - improve asset efficiency")  # Keep original percentage format
+                    concerns.append(f"Low ROA ({roa:.1%}) - improve asset efficiency")
                 if net_profit_margin < 0.05:
-                    concerns.append(f"Low margins ({net_profit_margin:.1%}) - reduce costs")  # Keep original percentage format
+                    concerns.append(f"Low margins ({net_profit_margin:.1%}) - reduce costs")
                 if current_ratio < 1.2:
                     concerns.append(f"Liquidity risk ({current_ratio:.2f}) - improve cash flow")
                 if debt_to_equity > 1.2:
@@ -894,7 +911,7 @@ elif page == "🎯 Custom Analysis":
                     st.write("• Strong performance across all metrics!")
 
 # ============================================================================
-# Ratio Prediction Page - FIXED percentage display
+# FIXED: Ratio Prediction Page
 # ============================================================================
 
 elif page == "🔮 Ratio Prediction":
@@ -931,10 +948,8 @@ elif page == "🔮 Ratio Prediction":
             for i, (_, year_data) in enumerate(recent_years.iterrows()):
                 with [trend_col1, trend_col2, trend_col3][i]:
                     st.markdown(f"**{int(year_data['Year'])}**")
-                    if pd.notna(year_data.get('ROE')):
-                        st.metric("ROE", f"{year_data['ROE']:.1%}")  # FIXED: Display as percentage
-                    if pd.notna(year_data.get('ROA')):
-                        st.metric("ROA", f"{year_data['ROA']:.1%}")  # FIXED: Display as percentage
+                    display_percentage_metric("ROE", year_data.get('ROE'))
+                    display_percentage_metric("ROA", year_data.get('ROA'))
             
             # Prediction button
             if st.button("🎯 Generate Predictions", type="primary"):
@@ -957,10 +972,10 @@ elif page == "🔮 Ratio Prediction":
                                 growth_rate = (recent_roe[1] - recent_roe[0]) / recent_roe[0] if recent_roe[0] != 0 else 0
                                 
                                 if prediction_method == "Conservative Estimate":
-                                    growth_rate *= 0.5  # More conservative
+                                    growth_rate *= 0.5
                                 
                                 predicted_roe = recent_roe[1] * (1 + growth_rate)
-                                predicted_roe = max(0, min(predicted_roe, 0.5))  # Bound predictions
+                                predicted_roe = max(0, min(predicted_roe, 0.5))
                             else:
                                 predicted_roe = latest_data.get('ROE', 0.1)
                         else:
@@ -986,7 +1001,7 @@ elif page == "🔮 Ratio Prediction":
                     with pred_result_col1:
                         current_roe = latest_data.get('ROE', 0)
                         roe_change = ((predicted_roe - current_roe) / current_roe * 100) if current_roe != 0 else 0
-                        st.metric("Predicted ROE", f"{predicted_roe:.1%}", f"{roe_change:+.1f}%")  # FIXED: Display as percentage
+                        st.metric("Predicted ROE", f"{predicted_roe:.1%}", f"{roe_change:+.1f}%")
                     
                     with pred_result_col2:
                         st.metric("Investment Outlook", investment_rec)
@@ -995,7 +1010,7 @@ elif page == "🔮 Ratio Prediction":
                         st.metric("Prediction Confidence", f"{confidence:.0%}")
 
 # ============================================================================
-# Health Check Page - FIXED percentage display
+# FIXED: Health Check Page
 # ============================================================================
 
 elif page == "🏥 Health Check":
@@ -1047,13 +1062,13 @@ elif page == "🏥 Health Check":
                     with health_col2:
                         st.markdown("#### 📊 Health Indicators")
                         
-                        # Individual health checks with FIXED percentage display
+                        # FIXED: Individual health checks with correct thresholds
                         health_indicators = [
                             ("Profitability", latest_data.get('ROE', 0), 0.12, "ROE"),
                             ("Asset Efficiency", latest_data.get('ROA', 0), 0.08, "ROA"),
-                            ("Profit Margins", latest_data.get('Net Profit Margin', 0), 0.10, "NPM"),
-                            ("Liquidity", latest_data.get('Current Ratio', 0), 1.2, "CR"),
-                            ("Leverage", latest_data.get('Debt-to-Equity', 0), 1.0, "D/E", True)  # Lower is better
+                            ("Profit Margins", latest_data.get('Net_Profit_Margin', 0), 0.10, "NPM"),
+                            ("Liquidity", latest_data.get('Current_Ratio', 0), 1.2, "CR"),
+                            ("Leverage", latest_data.get('Debt_to_Equity', 0), 1.0, "D/E", True)
                         ]
                         
                         for indicator, value, benchmark, code, *lower_better in health_indicators:
@@ -1076,7 +1091,7 @@ elif page == "🏥 Health Check":
                                 st.write(f"**{indicator}:** Data not available")
 
 # ============================================================================
-# Comparison Page - FIXED percentage display
+# FIXED: Comparison Page
 # ============================================================================
 
 elif page == "⚖️ Comparison":
@@ -1101,17 +1116,17 @@ elif page == "⚖️ Comparison":
             st.subheader(f"📊 Company Comparison - {comp_year} {comp_period}")
             
             # Create comparison table
-            metrics_to_compare = ['ROE', 'ROA', 'Net Profit Margin', 'Current Ratio', 'Debt-to-Equity']
+            metrics_to_compare = ['ROE', 'ROA', 'Net_Profit_Margin', 'Current_Ratio', 'Debt_to_Equity']
             available_metrics = [m for m in metrics_to_compare if m in comparison_data.columns]
             
             if available_metrics:
                 # FIXED: Prepare display data with correct percentage formatting
                 display_data = comparison_data[['Company'] + available_metrics].copy()
                 
-                # Format for display - FIXED percentage handling
+                # Format for display
                 for metric in available_metrics:
-                    if metric in ['ROE', 'ROA', 'Net Profit Margin']:
-                        # Data is already in decimal format, multiply by 100 for percentage display
+                    if metric in ['ROE', 'ROA', 'Net_Profit_Margin']:
+                        # Convert to percentage for display
                         display_data[f"{metric} (%)"] = (display_data[metric] * 100).round(1)
                         display_data = display_data.drop(columns=[metric])
                     else:
@@ -1132,16 +1147,16 @@ elif page == "⚖️ Comparison":
                         fig_roe = px.bar(roe_data, x='Company', y='ROE',
                                         title=f"ROE Comparison - {comp_year} {comp_period}",
                                         color='ROE', color_continuous_scale='viridis')
-                        fig_roe.update_layout(yaxis_tickformat='.1%', showlegend=False)  # FIXED: Display as percentage
+                        fig_roe.update_layout(yaxis_tickformat='.1%', showlegend=False)
                         st.plotly_chart(fig_roe, use_container_width=True)
                 
                 with chart_col2:
                     # Current Ratio comparison
-                    if 'Current Ratio' in comparison_data.columns:
-                        cr_data = comparison_data[['Company', 'Current Ratio']].copy()
-                        fig_cr = px.bar(cr_data, x='Company', y='Current Ratio',
+                    if 'Current_Ratio' in comparison_data.columns:
+                        cr_data = comparison_data[['Company', 'Current_Ratio']].copy()
+                        fig_cr = px.bar(cr_data, x='Company', y='Current_Ratio',
                                        title=f"Liquidity Comparison - {comp_year} {comp_period}",
-                                       color='Current Ratio', color_continuous_scale='plasma')
+                                       color='Current_Ratio', color_continuous_scale='plasma')
                         fig_cr.update_layout(showlegend=False)
                         st.plotly_chart(fig_cr, use_container_width=True)
                 
