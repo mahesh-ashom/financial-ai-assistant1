@@ -598,6 +598,131 @@ if page == "🏠 Dashboard":
             st.metric("Companies Analyzed", total_companies)
         
         with col2:
+            date_range = f"{df['Year'].min()}-{df['Year'].max()}"
+            st.metric("Data Period", date_range)
+        
+        with col3:
+            total_records = len(df)
+            st.metric("Financial Records", total_records)
+        
+        with col4:
+            avg_roe = df['ROE'].mean()
+            st.metric("Avg Sector ROE", f"{avg_roe:.1%}")
+        
+        # Latest performance summary
+        st.subheader("🏆 Latest Company Performance")
+        
+        # Get latest data for each company
+        latest_year = df['Year'].max()
+        latest_data = df[(df['Year'] == latest_year) & (df['Period_Type'] == 'Annual')]
+        
+        if not latest_data.empty:
+            # Create performance comparison
+            performance_cols = st.columns(len(latest_data))
+            
+            for i, (_, company_data) in enumerate(latest_data.iterrows()):
+                with performance_cols[i]:
+                    company = company_data['Company']
+                    roe = company_data['ROE']
+                    
+                    # Generate recommendation using enhanced AI
+                    recommendation_result = enhanced_financial_ai.comprehensive_analysis(company_data.to_dict())
+                    recommendation = recommendation_result['investment_recommendation']
+                    
+                    st.markdown(f"### {company}")
+                    st.metric("ROE", f"{roe:.1%}")
+                    
+                    # Color-coded recommendation
+                    if recommendation in ["Strong Buy", "Buy"]:
+                        st.success(f"📈 {recommendation}")
+                    elif "Hold" in recommendation:
+                        st.warning(f"⚖️ {recommendation}")
+                    else:
+                        st.error(f"📉 {recommendation}")
+        
+        # Sector trends chart
+        st.subheader("📈 Sector ROE Trends")
+        
+        # Create trend chart
+        annual_data = df[df['Period_Type'] == 'Annual'].groupby(['Year', 'Company'])['ROE'].mean().reset_index()
+        
+        if not annual_data.empty:
+            fig = px.line(
+                annual_data, 
+                x='Year', 
+                y='ROE', 
+                color='Company',
+                title="ROE Performance Over Time",
+                labels={'ROE': 'Return on Equity (%)', 'Year': 'Year'},
+                markers=True
+            )
+            fig.update_layout(yaxis_tickformat='.1%')
+            st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# Company Analysis Page - FIXED percentage display
+# ============================================================================
+
+elif page == "📊 Company Analysis":
+    st.header("📊 Individual Company Analysis")
+    st.markdown("*Deep dive into specific company performance*")
+    
+    if not df.empty:
+        # Company selection
+        available_companies = sorted(df['Company'].unique())
+        company = st.selectbox("Select Company:", available_companies)
+        
+        # Get available periods
+        company_data = df[df['Company'] == company]
+        available_years = sorted(company_data['Year'].unique(), reverse=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            year = st.selectbox("Select Year:", available_years)
+        
+        with col2:
+            # Check available period types for the year
+            year_data = company_data[company_data['Year'] == year]
+            available_periods = []
+            
+            if not year_data[year_data['Period_Type'] == 'Annual'].empty:
+                available_periods.append("Annual")
+            
+            quarterly_data = year_data[year_data['Period_Type'] == 'Quarterly']
+            for q in sorted(quarterly_data['Quarter'].unique()):
+                if q > 0:
+                    available_periods.append(f"Q{int(q)}")
+            
+            if available_periods:
+                period = st.selectbox("Select Period:", available_periods)
+            else:
+                st.error(f"No data available for {company} in {year}")
+                st.stop()
+        
+        # Get selected data
+        if period == "Annual":
+            selected_data = year_data[year_data['Period_Type'] == 'Annual'].iloc[0]
+        else:
+            quarter_num = int(period[1])
+            selected_data = year_data[year_data['Quarter'] == quarter_num].iloc[0]
+        
+        # Display analysis
+        st.subheader(f"📈 {company} - {year} {period}")
+        
+        # FIXED: Financial metrics display with correct percentage formatting
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("#### 💰 Profitability")
+            if pd.notna(selected_data.get('ROE')):
+                st.metric("ROE", f"{selected_data['ROE']:.1%}")
+            if pd.notna(selected_data.get('ROA')):
+                st.metric("ROA", f"{selected_data['ROA']:.1%}")
+            if pd.notna(selected_data.get('Net_Profit_Margin')):
+                st.metric("Net Profit Margin", f"{selected_data['Net_Profit_Margin']:.1%}")
+        
+        with col2:
             st.markdown("#### ⚖️ Financial Health")
             if pd.notna(selected_data.get('Current_Ratio')):
                 st.metric("Current Ratio", f"{selected_data['Current_Ratio']:.2f}")
@@ -1139,128 +1264,3 @@ with st.expander("🔧 Technical Details", expanded=False):
 
 st.markdown("---")
 st.markdown("*Saudi Food Sector Financial AI Assistant | Powered by Advanced Machine Learning*")
-            date_range = f"{df['Year'].min()}-{df['Year'].max()}"
-            st.metric("Data Period", date_range)
-        
-        with col3:
-            total_records = len(df)
-            st.metric("Financial Records", total_records)
-        
-        with col4:
-            avg_roe = df['ROE'].mean()
-            st.metric("Avg Sector ROE", f"{avg_roe:.1%}")
-        
-        # Latest performance summary
-        st.subheader("🏆 Latest Company Performance")
-        
-        # Get latest data for each company
-        latest_year = df['Year'].max()
-        latest_data = df[(df['Year'] == latest_year) & (df['Period_Type'] == 'Annual')]
-        
-        if not latest_data.empty:
-            # Create performance comparison
-            performance_cols = st.columns(len(latest_data))
-            
-            for i, (_, company_data) in enumerate(latest_data.iterrows()):
-                with performance_cols[i]:
-                    company = company_data['Company']
-                    roe = company_data['ROE']
-                    
-                    # Generate recommendation using enhanced AI
-                    recommendation_result = enhanced_financial_ai.comprehensive_analysis(company_data.to_dict())
-                    recommendation = recommendation_result['investment_recommendation']
-                    
-                    st.markdown(f"### {company}")
-                    st.metric("ROE", f"{roe:.1%}")
-                    
-                    # Color-coded recommendation
-                    if recommendation in ["Strong Buy", "Buy"]:
-                        st.success(f"📈 {recommendation}")
-                    elif "Hold" in recommendation:
-                        st.warning(f"⚖️ {recommendation}")
-                    else:
-                        st.error(f"📉 {recommendation}")
-        
-        # Sector trends chart
-        st.subheader("📈 Sector ROE Trends")
-        
-        # Create trend chart
-        annual_data = df[df['Period_Type'] == 'Annual'].groupby(['Year', 'Company'])['ROE'].mean().reset_index()
-        
-        if not annual_data.empty:
-            fig = px.line(
-                annual_data, 
-                x='Year', 
-                y='ROE', 
-                color='Company',
-                title="ROE Performance Over Time",
-                labels={'ROE': 'Return on Equity (%)', 'Year': 'Year'},
-                markers=True
-            )
-            fig.update_layout(yaxis_tickformat='.1%')
-            st.plotly_chart(fig, use_container_width=True)
-
-# ============================================================================
-# Company Analysis Page - FIXED percentage display
-# ============================================================================
-
-elif page == "📊 Company Analysis":
-    st.header("📊 Individual Company Analysis")
-    st.markdown("*Deep dive into specific company performance*")
-    
-    if not df.empty:
-        # Company selection
-        available_companies = sorted(df['Company'].unique())
-        company = st.selectbox("Select Company:", available_companies)
-        
-        # Get available periods
-        company_data = df[df['Company'] == company]
-        available_years = sorted(company_data['Year'].unique(), reverse=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            year = st.selectbox("Select Year:", available_years)
-        
-        with col2:
-            # Check available period types for the year
-            year_data = company_data[company_data['Year'] == year]
-            available_periods = []
-            
-            if not year_data[year_data['Period_Type'] == 'Annual'].empty:
-                available_periods.append("Annual")
-            
-            quarterly_data = year_data[year_data['Period_Type'] == 'Quarterly']
-            for q in sorted(quarterly_data['Quarter'].unique()):
-                if q > 0:
-                    available_periods.append(f"Q{int(q)}")
-            
-            if available_periods:
-                period = st.selectbox("Select Period:", available_periods)
-            else:
-                st.error(f"No data available for {company} in {year}")
-                st.stop()
-        
-        # Get selected data
-        if period == "Annual":
-            selected_data = year_data[year_data['Period_Type'] == 'Annual'].iloc[0]
-        else:
-            quarter_num = int(period[1])
-            selected_data = year_data[year_data['Quarter'] == quarter_num].iloc[0]
-        
-        # Display analysis
-        st.subheader(f"📈 {company} - {year} {period}")
-        
-        # FIXED: Financial metrics display with correct percentage formatting
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("#### 💰 Profitability")
-            if pd.notna(selected_data.get('ROE')):
-                st.metric("ROE", f"{selected_data['ROE']:.1%}")
-            if pd.notna(selected_data.get('ROA')):
-                st.metric("ROA", f"{selected_data['ROA']:.1%}")
-            if pd.notna(selected_data.get('Net_Profit_Margin')):
-                st.metric("Net Profit Margin", f"{selected_data['Net_Profit_Margin']:.1%}")
-        
-        with col2
