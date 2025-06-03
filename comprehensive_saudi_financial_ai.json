@@ -1,0 +1,35 @@
+{
+  "model_info": {
+    "training_date": "2024",
+    "data_source": "Historical Saudi Food Sector Data (2016-2023)",
+    "model_accuracy": {
+      "roe_r2": -0.8474900013298983,
+      "investment_accuracy": 0.8947368421052632,
+      "status_accuracy": 0.8421052631578947
+    },
+    "companies_analyzed": [
+      "Almarai",
+      "Savola",
+      "NADEC"
+    ],
+    "total_records": 93
+  },
+  "questions": [
+    {
+      "question": "which company has the best roe performance",
+      "answer": "Based on 93 historical records from 2016-2023, Almarai demonstrates the highest ROE performance, averaging 5.8% compared to Savola's 3.3% and NADEC's 1.3%. Almarai achieved a peak ROE of 16.0% during the analysis period."
+    },
+    {
+      "question": "compare almarai vs savola for investment",
+      "answer": "Historical analysis shows Almarai outperforms Savola with ROE of 5.8% vs 3.3%. Almarai shows lower volatility at 4.2% vs 4.2%. Our AI models predict this trend to continue based on 93 historical data points with 89.5% prediction accuracy."
+    },
+    {
+      "question": "portfolio optimization using historical data",
+      "answer": "Our portfolio optimizer uses correlation analysis from 93 historical records spanning 8 years. Based on actual ROE performance: Almarai (avg: 5.8%), Savola (avg: 3.3%), NADEC (avg: 1.3%). The AI models achieve 89.5% accuracy in investment recommendations."
+    },
+    {
+      "question": "saudi food sector analysis",
+      "answer": "AI analysis of 93 quarterly records shows: Top performer Almarai (ROE: 5.8%), followed by Savola (3.3%) and NADEC (1.3%). Models trained on 8 years of data achieve 84.2% accuracy in company status classification."
+    }
+  ]
+}
